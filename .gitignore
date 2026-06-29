@@ -1,0 +1,15 @@
+# SwiftPM build products
+.build/
+
+# Xcode / SwiftPM local state
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcodeproj
+
+# macOS
+.DS_Store
+
+# NOTE: Package.resolved is intentionally NOT ignored. laconic-review is an executable
+# (an app, not a library), so its resolved dependency graph is committed for reproducible
+# builds. (Iron rule: never gitignore Package.resolved in apps.)
