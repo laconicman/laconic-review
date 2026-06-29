@@ -23,8 +23,10 @@ public enum ReportParser {
     }
 
     public static func parse(_ markdown: String) throws -> ReviewReport {
-        // Local (not a static let): Regex isn't Sendable, so a stored global trips Swift 6.
-        let anchor = /<!--\s+(review|finding)\s+(.*?)\s*-->/
+        // Anchors are block-level: they must START a line (after optional indentation). This is
+        // what lets prose mention the syntax inline — `<!-- finding … -->` in backticks — without
+        // the parser treating it as a real anchor. Local, since Regex isn't Sendable (Swift 6).
+        let anchor = /^[ \t]*<!--\s+(review|finding)\s+(.*?)\s*-->/.anchorsMatchLineEndings()
         let matches = Array(markdown.matches(of: anchor))
 
         guard let review = matches.first(where: { $0.output.1 == "review" }) else {
