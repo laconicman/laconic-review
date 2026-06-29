@@ -1,5 +1,5 @@
 import ArgumentParser
-import FlatReviewCore
+import LaconicReviewCore
 
 /// List the existing non-system review threads on an MR (idempotency input for publish).
 struct DiscussionsCommand: AsyncParsableCommand {

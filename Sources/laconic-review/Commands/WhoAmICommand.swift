@@ -1,5 +1,5 @@
 import ArgumentParser
-import FlatReviewCore
+import LaconicReviewCore
 
 /// Verify the token and show the current GitLab identity (`GET /user`).
 struct WhoAmICommand: AsyncParsableCommand {

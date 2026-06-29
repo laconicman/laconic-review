@@ -1,5 +1,5 @@
 import ArgumentParser
-import FlatReviewCore
+import LaconicReviewCore
 
 /// Flags shared by every subcommand. The token is taken from the environment, never a flag.
 struct ConnectionOptions: ParsableArguments {

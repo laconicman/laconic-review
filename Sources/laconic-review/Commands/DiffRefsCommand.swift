@@ -1,5 +1,5 @@
 import ArgumentParser
-import FlatReviewCore
+import LaconicReviewCore
 
 /// Show the base/head/start SHAs for an MR — the refs a line comment anchors to.
 struct DiffRefsCommand: AsyncParsableCommand {

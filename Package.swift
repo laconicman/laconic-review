@@ -15,10 +15,10 @@ let package = Package(
     ],
     products: [
         // The CLI you run.
-        .executable(name: "flat-review", targets: ["flat-review"]),
+        .executable(name: "laconic-review", targets: ["laconic-review"]),
         // The testable core — review intelligence is provider-neutral; only `GitLabConnection`
         // touches GitLab. This is the surface the skill self-heals from (via its DocC).
-        .library(name: "FlatReviewCore", targets: ["FlatReviewCore"]),
+        .library(name: "LaconicReviewCore", targets: ["LaconicReviewCore"]),
     ],
     dependencies: [
         // Local path dep during bring-up; swap to a Git URL once GitLabKit is published.
@@ -27,14 +27,14 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "flat-review",
+            name: "laconic-review",
             dependencies: [
-                "FlatReviewCore",
+                "LaconicReviewCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
         .target(
-            name: "FlatReviewCore",
+            name: "LaconicReviewCore",
             dependencies: [
                 // Façade (adds `Client` conveniences) + the generated client/types.
                 .product(name: "GitLabKit", package: "GitLabKit"),
@@ -42,8 +42,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "FlatReviewCoreTests",
-            dependencies: ["FlatReviewCore"]
+            name: "LaconicReviewCoreTests",
+            dependencies: ["LaconicReviewCore"]
         ),
     ]
 )

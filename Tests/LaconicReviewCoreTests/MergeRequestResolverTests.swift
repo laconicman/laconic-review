@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import FlatReviewCore
+@testable import LaconicReviewCore
 
 /// The MR-resolution decision tree is pure, so it is tested without any network.
 @Suite struct MergeRequestResolverTests {

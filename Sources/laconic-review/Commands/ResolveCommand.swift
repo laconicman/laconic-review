@@ -1,5 +1,5 @@
 import ArgumentParser
-import FlatReviewCore
+import LaconicReviewCore
 
 /// Resolve the merge request for a branch via the decision tree → an iid, `none`, or candidates.
 struct ResolveCommand: AsyncParsableCommand {

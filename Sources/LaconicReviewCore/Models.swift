@@ -42,6 +42,32 @@ public struct DiffRefs: Equatable, Sendable, Codable {
     public let startSha: String?
 }
 
+/// A neutral line anchor for a discussion: a file + line on one side of the diff. The seam
+/// combines this with ``DiffRefs`` (fetched at publish) to build GitLab's `position` object.
+public struct Position: Equatable, Sendable, Codable {
+    public let file: String
+    public let line: Int
+    public let lineType: LineSide
+
+    public init(file: String, line: Int, lineType: LineSide) {
+        self.file = file
+        self.line = line
+        self.lineType = lineType
+    }
+}
+
+/// The result of creating a discussion: the thread id (to resolve later) and its first note id
+/// (to anchor a `#note_<id>` URL). Provider-neutral — the publish layer composes the URL.
+public struct PostedDiscussion: Equatable, Sendable {
+    public let discussionID: String
+    public let noteID: Int?
+
+    public init(discussionID: String, noteID: Int?) {
+        self.discussionID = discussionID
+        self.noteID = noteID
+    }
+}
+
 /// A review thread reduced to its publish-relevant shape (system-only threads are dropped
 /// upstream of this type). `onDiff` distinguishes a line-anchored thread from a general one.
 public struct DiscussionSummary: Equatable, Sendable, Codable {

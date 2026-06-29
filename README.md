@@ -10,18 +10,18 @@ The **connector leads**. GitLabKit's typed API is the source of truth for *how* 
 becomes a discussion/note/position; the skill adapts its output to this interface, never the
 reverse. Consequences:
 
-- **One GitLab-aware file** — `FlatReviewCore/GitLabConnection.swift`. Everything else (the
+- **One GitLab-aware file** — `LaconicReviewCore/GitLabConnection.swift`. Everything else (the
   CLI, the resolver, the DTOs) is provider-neutral. A future GitHub means a second connection
   type, not a rewrite.
-- **`FlatReviewCore`'s DocC is the contract.** The skill reads its symbol graph to learn what
+- **`LaconicReviewCore`'s DocC is the contract.** The skill reads its symbol graph to learn what
   to emit and self-heals when GitLabKit changes — cheaper and more precise than reading source.
   So the `///` comments there are the spec, kept accurate on purpose.
 - **The markdown report is the human-editable SSOT** (see *Report format* below). Position
   SHAs are **not** persisted in it — they're fetched fresh from `diff-refs` at publish time.
 
 ```
-flat-review (executable, ArgumentParser)
-        └── FlatReviewCore (library, testable)
+laconic-review (executable, ArgumentParser)
+        └── LaconicReviewCore (library, testable)
                 ├── GitLabConnection   ← the only file that imports GitLabKit
                 ├── MergeRequestResolver (pure decision tree)
                 ├── ProjectContext / GitLabConfig
@@ -56,11 +56,16 @@ The token is read from the environment (`GITLAB_TOKEN` by default), never passed
 ```bash
 export GITLAB_TOKEN="glpat-…"
 
-flat-review whoami
-flat-review resolve fix/logout-sometimes/FPM-1653 --base develop
-flat-review diff-refs 965
-flat-review discussions 965
-flat-review whoami --json          # any command: machine-readable output
+laconic-review whoami
+laconic-review resolve fix/logout-sometimes/FPM-1653 --base develop
+laconic-review diff-refs 965
+laconic-review discussions 965
+laconic-review whoami --json          # any command: machine-readable output
+
+# Publish a review report's findings to the MR (dry-run, then for real):
+laconic-review publish .claude/reviews/fix-logout/1.md            # offline dry-run — prints the plan
+laconic-review publish .claude/reviews/fix-logout/1.md --confirm  # posts; records 1.published.json
+laconic-review resolve-thread .claude/reviews/fix-logout/1.md C1 --confirm   # resolve a finding's thread
 ```
 
 ## Report format (the inviolable bits)
@@ -81,5 +86,8 @@ stable across iterations for lineage. SHAs are intentionally absent — `publish
 
 ## Status
 
-Phase 2.a (read-only): `whoami`, `resolve`, `diff-refs`, `discussions`. Next: `publish` /
-`resolve-thread` parsing the markdown SSOT, gated behind `--confirm`.
+Phase 2.b. Read: `whoami`, `resolve`, `diff-refs`, `discussions`. Write (dry-run unless
+`--confirm`): `publish` parses the markdown SSOT, fetches `diff_refs`, and posts line-anchored
++ general discussions idempotently (via `<N>.published.json`); `resolve-thread` resolves a
+published finding's thread. Next: adapt the `code-review-flat` skill to emit the HTML-anchored
+markdown and drop the parallel `findings.json`.

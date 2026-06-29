@@ -4,7 +4,7 @@ import GitLabOpenAPI
 
 /// The single GitLab-aware seam.
 ///
-/// Everything provider-specific lives here; the rest of `FlatReviewCore` and the whole CLI
+/// Everything provider-specific lives here; the rest of `LaconicReviewCore` and the whole CLI
 /// speak only the neutral DTOs in ``Models``. When GitLabKit's API changes, **this is the one
 /// file to re-derive** — read GitLabKit's (and this type's) DocC symbol graph, adjust the
 /// mappings, done. That is the "self-heal" boundary.
@@ -68,6 +68,55 @@ public struct GitLabConnection: Sendable {
             .init(path: .init(id: project, noteableId: iid))   // notes/discussions: id is a String
         )
         return try output.ok.body.json.compactMap(Self.discussion)
+    }
+
+    // MARK: - Writes
+
+    /// `POST /projects/:id/merge_requests/:iid/discussions` — create a thread.
+    ///
+    /// Pass `position` **and** `diffRefs` for a line-anchored thread; omit either for a general
+    /// note. `diffRefs` is the server's truth for `position`, fetched fresh via ``mergeRequest(iid:)``.
+    public func postDiscussion(
+        iid: Int, body: String, position: Position?, diffRefs: DiffRefs?
+    ) async throws -> PostedDiscussion {
+        // Build the body via the stable operation type + inferred `.init`, so the unstable
+        // generated `RequestBody<hash>` name never appears here (see the GitLabKit upstream note).
+        typealias Op = Operations.PostApiV4ProjectsIdMergeRequestsNoteableIdDiscussions
+        let payload: Op.Input.Body
+        if let position, let diffRefs {
+            payload = .json(.init(
+                body: body,
+                position: .init(
+                    baseSha: diffRefs.baseSha,
+                    startSha: diffRefs.startSha,
+                    headSha: diffRefs.headSha,
+                    positionType: .text,
+                    newPath: position.lineType == .new ? position.file : nil,
+                    newLine: position.lineType == .new ? position.line : nil,
+                    oldPath: position.lineType == .old ? position.file : nil,
+                    oldLine: position.lineType == .old ? position.line : nil
+                )
+            ))
+        } else {
+            payload = .json(.init(body: body))
+        }
+        let discussion = try await client.postApiV4ProjectsIdMergeRequestsNoteableIdDiscussions(
+            .init(path: .init(id: project, noteableId: iid), body: payload)
+        ).created.body.json
+        return PostedDiscussion(
+            discussionID: discussion.id ?? "",
+            noteID: discussion.notes?.first?.id.map(Int.init)
+        )
+    }
+
+    /// `PUT /projects/:id/merge_requests/:iid/discussions/:discussionId` — resolve/unresolve.
+    public func resolveThread(iid: Int, discussionID: String, resolved: Bool) async throws {
+        _ = try await client.putApiV4ProjectsIdMergeRequestsNoteableIdDiscussionsDiscussionId(
+            .init(
+                path: .init(id: project, noteableId: iid, discussionId: discussionID),
+                body: .json(.init(resolved: resolved))
+            )
+        ).ok
     }
 
     // MARK: - Mapping (GitLab types → neutral DTOs)
