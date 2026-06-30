@@ -1,118 +1,104 @@
-# Rubric — формат и условные обозначения
+# Rubric — review content rules
 
-Этот файл описывает обязательные правила **содержания** code review: шкала серьёзности, статусы, ID, scope, правила перекрёстных ссылок, конвенция `Nit:` (по Google), цитаты источников. Содержание ревью — ваше; форму (HTML-якоря и раскладку) задаёт пакет laconic-review — см. секцию «Форма отчёта».
+> **Structure (read efficiently).** The rules below are **language-neutral** — read them whatever
+> the review's output language. Prose *examples* that depend on that language live in the
+> **Phrasing examples** section at the end, split by language; read only the one matching your
+> output language (see the skill's *Language* step) and skip the rest. These rules are the
+> content contract; the *form* (HTML anchors + layout) is owned by the laconic-review package —
+> emit by `references/example-report.md`, don't restate it here.
 
-## Серьёзность (severity) — три значения
+## Severity — three values
 
-| Эмодзи | Значение | Гейт мёрджа |
+| Emoji | Meaning | Merge gate |
 |---|---|---|
-| 🔴 | **Blocker** — баг, потеря данных, регрессия, безопасность, утечка | Должно быть исправлено до мёрджа |
-| 🟡 | **Concern** — design smell, хрупкий паттерн, отсутствие теста, мёртвый код | Желательно исправить; мёрджить только с явным acknowledgement |
-| 🟢 | **Nit** — стиль, косметика, читаемость. Тело замечания **начинать со слова `Nit:`** | На усмотрение автора |
+| 🔴 | **Blocker** — bug, data loss, regression, security, leak | Must be fixed before merge |
+| 🟡 | **Concern** — design smell, fragile pattern, missing test, dead code | Should fix; merge only with explicit acknowledgement |
+| 🟢 | **Nit** — style, cosmetics, readability. The body **begins with `Nit:`** | Author's discretion |
 
-Эмодзи серьёзности **никогда не переиспользуются** для других целей. Если в тексте нужно ставить эмодзи для другого смысла (статус, важность, секции) — берите из таблицы статусов или используйте другие символы.
+Severity emoji are **never reused** for any other meaning (status, importance, sections) — take
+those from the status table or use other symbols. The `Nit:` convention is from
+[Google eng-practices](https://google.github.io/eng-practices/review/reviewer/looking-for.html):
+the prefix makes explicit that a remark is optional, so the author can skip it without friction.
 
-Конвенция `Nit:` пришла из [Google eng-practices — What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html). Префикс делает явным, что замечание стилистическое: автор может проигнорировать, не обижая ревьюера.
+## Status — a separate axis from severity
 
-## Статус (status) — отдельная ось от серьёзности
-
-| Эмодзи | Значение | Токен в якоре |
+| Emoji | Meaning | Anchor token |
 |---|---|---|
-| ⏳ | Open — замечание открыто, не исправлено | `open` |
-| 🛠️ | In progress — автор взял в работу | `in_progress` |
-| ✅ | Closed — исправлено и проверено | `closed` |
-| ❓ | Needs info — нужно уточнение от автора | `needs_info` |
+| ⏳ | Open — raised, not addressed | `open` |
+| 🛠️ | In progress — author has taken it up | `in_progress` |
+| ✅ | Closed — fixed and verified | `closed` |
+| ❓ | Needs info — needs clarification from the author | `needs_info` |
 
-Эмодзи в заголовке — зеркало для людей; машина читает токен `status=` в якоре. Публикуются только находки со `status=open`; `closed` закрывает тред (`laconic-review resolve-thread`).
+The heading emoji is a human mirror; the machine reads the `status=` token. Only `open` findings
+publish; `closed` closes the thread (`laconic-review resolve-thread`).
 
-## ID замечаний
+## Finding ids
 
-Каждое замечание имеет стабильный ID вида `<префикс><номер>`:
-- `B1, B2, …` — Blocker
-- `C1, C2, …` — Concern
-- `N1, N2, …` — Nit
+A stable id `<prefix><n>`: `B1, B2, …` Blocker · `C1, C2, …` Concern · `N1, N2, …` Nit. The prefix
+is a birth mnemonic; `severity=` is authoritative (it wins on conflict), so the id **never
+changes** across iterations — that's the lineage key. There is **no letter for scope**: a
+general-scoped concern is still `C<n>` with `scope=general`, never `G`. New findings take the next
+free number in their category and never recycle a closed one.
 
-Префикс — мнемоника серьёзности при «рождении»; авторитетна `severity=` (она побеждает при расхождении), поэтому ID **не меняется** между итерациями ради сохранения истории. **Буквы для scope нет**: general-находка с серьёзностью concern — это `C<n>` со `scope=general`, никогда не `G`. Новые замечания получают следующий свободный номер в своей категории, никогда не переиспользуют закрытые номера.
+## Scope
 
-## Форма отчёта
+- **`line`** — anchored to a code fragment. Anchor carries `scope=line` + `file` + `line` (range
+  `start-end` or one line) + `line_type` (`new`/`old`); publishes as a GitLab diff note. Never
+  line-anchor a file **not in the MR diff** — GitLab rejects the position. `lint` checks
+  `file`+`line`; SHAs aren't stored (publish fetches them fresh).
+- **`general`** — architecture, missing tests, PR description, overall design. No file/line;
+  publishes as a top-level MR note.
 
-Форму — HTML-якоря и раскладку — задаёт пакет laconic-review, не этот файл. **Эмиттируйте по золотому образцу** `references/example-report.md`; авторитетный источник полей — `Docs/report-format.md` и DocC `LaconicReviewCore` в пакете (`laconic-review lint` — его исполняемая форма). Схему якорей здесь **не дублируем** (расходится). Коротко:
+## Cross-references
 
-- один `<!-- review branch=… base=… iid=… iteration=<N> skill=laconic-code-review@1 -->`, все значения без пробелов;
-- **шапка для людей** до первой находки — заголовок, абзац-резюме, сводная таблица, рекомендация по мёрджу. Парсер её игнорирует, поэтому **группировка и итоги — только здесь**;
-- **находки подряд**: `<!-- finding id=… severity=… status=… scope=… [file=… line=… line_type=…] [links=…] -->` + дословная проза (заголовок-зеркало `### 🟡 C1. … — ⏳ Open`, тело, инлайн-источники, код-фенсы). Проза публикуется как есть — каждый блок самодостаточен.
+If a finding relates to another in the same report, put the ids in the anchor: `links=C2`
+(comma-separated, e.g. `links=C2,N1`) — finding ids, not GFM anchors. `laconic-review publish`
+substitutes real thread URLs and renders the footer language-neutrally (`🔗`), so **never
+hand-write a footer**. In prose, refer to the related finding in the output language (see
+*Phrasing examples*).
 
-`##`-секции между находками **запрещены**: проза находки тянется до следующего якоря, поэтому любой такой заголовок (или таблица после последней находки) утечёт в тело предыдущего комментария.
+## Sources
 
-## Поле «Scope»
+Any claim about Swift/runtime semantics, an Apple framework contract, Combine/async-await/actor
+behaviour, or a best practice (Google, Apple HIG, RFC) must carry a source — a Markdown link,
+**inline in the finding's prose** (the source travels with its comment, never a trailing table).
+Minimum one source per claim; ideally the specific section/proposal with an anchor. For example:
 
-Каждое замечание объявляет один из двух scope:
+> Actor-isolated functions are [reentrant](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0306-actors.md#actor-reentrancy):
+> while suspended at an `await`, the actor may service other calls.
 
-- **`line`** — привязано к конкретному фрагменту кода. В якоре `scope=line` + `file` + `line` (диапазон `start-end` или одна строка) + `line_type` (`new`/`old`). Публикуется как GitLab **diff note** (line-level discussion).
-- **`general`** — об архитектуре, отсутствующих тестах, PR description, общем дизайне. Без file/line. Публикуется как top-of-thread comment к MR.
+## Iterations
 
-Никогда не делайте `scope=line` с указанием на файл, который **не входит** в диапазон диффа MR — GitLab такой комментарий не примет. `laconic-review lint` проверяет наличие `file`+`line`; SHA в отчёте не хранятся — `publish` берёт их свежими из MR.
+When asked to compare with a previous review, load the previous `<N-1>.md` (its anchors carry the
+findings — there's no JSON):
 
-## Перекрёстные ссылки между замечаниями
+1. For each prior finding: fixed → `status=closed`, id kept, cite the fix + a one-line
+   verification; in progress / partial → `status=in_progress`; unchanged → `status=open`.
+2. New findings → next free id in their category.
+3. **Closed-with-nuance:** if closing a finding surfaces a new one, the old gets `status=closed`
+   + `links=<new id>`, the new gets the next free id + `links=<old id>`; link both in prose.
 
-Если замечание усиливается или связано с другим в этом же отчёте — укажите id'шки в якоре:
+Closed findings are emitted **back-to-back like any other** (`status=closed`) — never under a
+`## …` section (it would leak into the preceding comment). The front-matter summary table is
+where the reader sees closed vs open.
 
-```
-<!-- finding id=C1 … links=C2 -->
-```
+## What not to do
 
-`links` — это **id находок** (`C2`, `N1`), список через запятую (`links=C2,N1`), а не GFM-якоря. `laconic-review publish` подставит реальные URL discussions для уже опубликованных в этом прогоне; на ссылку на ещё не опубликованную находку выводится её id (двухпроходная починка — в роадмапе). В прозе ссылайтесь словами («усиливает C2»); машинная связь живёт в `links=`.
+- Reuse 🔴/🟡/🟢 for anything but severity.
+- Change a finding's id between iterations, or recycle a closed number.
+- Encode scope in the id (there is no `G`; a general concern is `C<n>`).
+- Put `##` section headers between findings, or anything after the last one (it leaks into a comment).
+- Close a finding without citing the fix (code/commit).
+- Line-anchor a file not in the diff.
+- Make a platform/runtime claim without a source.
+- Mix two languages in one phrase — except identifiers, file paths, symbol names, and code.
 
-## Цитаты источников
+## Phrasing examples (read only your output language)
 
-Любое утверждение про:
-- семантику Swift / поведение runtime
-- contract Apple framework
-- поведение Combine, async/await, actors
-- best practice (Google, Apple HIG, RFC)
+### English
+- Nit body: `Nit: prefer guard here to cut the nesting.`
+- Cross-reference: "reinforces C2", "closed with a caveat — see C5", "grows out of B1".
 
-должно быть подкреплено ссылкой. Формат — Markdown link, **инлайном внутри прозы находки** (источник едет вместе со своим комментарием, не отдельной таблицей в конце). Минимально допустимо: один источник на утверждение. Идеально — конкретный раздел/section/proposal с anchor.
-
-Примеры приемлемых формулировок:
-
-> Actor-isolated functions [reentrant](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0306-actors.md#actor-reentrancy): пока функция приостановлена на `await`, актор может обрабатывать другие входящие вызовы.
-
-> `DispatchQueue.main.sync` из кооперативного потока нарушает контракт **forward progress** ([WWDC21 session 10254 «Swift concurrency: Behind the scenes»](https://developer.apple.com/videos/play/wwdc2021/10254)).
-
-## Итерации
-
-Когда пользователь просит «сравни с прошлым ревью» или «что изменилось»:
-
-1. Загрузите предыдущий `<N-1>.md` (находки — в его якорях; отдельного JSON нет).
-2. Пройдитесь по каждому замечанию из прошлой итерации:
-   - Если исправлено в новых коммитах — `status=closed`, ID остаётся, добавляется цитата фикса и one-line подтверждение.
-   - Если в работе или частично исправлено — `status=in_progress`, описание прогресса.
-   - Если осталось без изменений — `status=open`, копируется как есть.
-3. Найдите новые замечания в свежих коммитах — добавьте под следующими свободными ID в соответствующей категории.
-4. Если закрытое замечание привело к новому замечанию (правка вскрыла новый аспект), правило:
-   - Старое — `status=closed`, `links=<новый id>`; в прозе: «закрыто с нюансом, см. <id>».
-   - Новое — следующий свободный ID, `links=<старый id>`; в прозе: «прорастает из <старого id>».
-
-### Закрытые находки в итерации 2+
-
-Закрытая находка — **обычная находка подряд** со `status=closed`, не отдельная `##`-секция (та утечёт в комментарий). В прозе — коммит-фикс и одна-две строки верификации:
-
-```
-<!-- finding id=B1 severity=blocker status=closed scope=line file=… line=… -->
-### 🔴 B1. <Прошлый заголовок> — ✅ Closed
-
-**Коммит:** `<sha> — <сообщение>`. <Почему фикс корректен.>
-```
-
-Что закрыто, а что открыто, читатель видит в сводной таблице шапки.
-
-## Что НЕЛЬЗЯ делать
-
-- Использовать 🔴/🟡/🟢 для чего-то кроме severity.
-- Менять ID замечания между итерациями, или переиспользовать закрытый номер.
-- Кодировать scope в ID (буквы `G` нет — general-concern это `C<n>`).
-- Ставить `##`-секции между находками или таблицу после последней (утечёт в комментарий).
-- Закрывать замечание без цитаты кода/коммита-фикса.
-- Делать line-anchored замечание про файл, не входящий в дифф.
-- Писать комментарий без источника, когда утверждение про поведение платформы / runtime.
-- Смешивать русский и английский в одной фразе кроме случаев, когда английское — это идентификатор, имя файла, имя символа, или цитата кода.
+### Русский
+- Тело nit'а: `Nit: лучше guard, чтобы убрать вложенность.`
+- Перекрёстная ссылка: «усиливает C2», «закрыто с нюансом, см. C5», «прорастает из B1».

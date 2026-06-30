@@ -77,7 +77,9 @@ Take the highest existing `<N>.md` and add one. Keep the branch's slashes (`fix/
 
 ### 5. Delegate to specialist skills
 
-If the diff touches any of these areas, **read the corresponding skill before forming your opinion.** Don't reason about specialist domains from scratch.
+**Always consult the `software-development-principles` skill** — it's bundled as a companion to this one: it grounds architecture findings and supplies precise, shared vocabulary, improving the review markedly for little cost.
+
+Then, **if the diff touches one of these areas, read the matching specialist** before forming your opinion — don't reason about specialist domains from scratch:
 
 | Diff content | Skill to read |
 |---|---|
@@ -91,7 +93,7 @@ If the diff touches any of these areas, **read the corresponding skill before fo
 | `.xcframework`, signing, distribution, C/C++ wrapping | `xcframework-distribution` |
 | Apple API reference, HIG, WWDC details | `sosumi` |
 
-The list isn't exhaustive — follow normal skill-discovery cues.
+The list isn't exhaustive — follow normal skill-discovery cues. **If a companion or a needed specialist isn't installed this session, tell the user to install it** rather than proceeding without it.
 
 ### 6. Write the report
 
@@ -109,7 +111,9 @@ The *form* (HTML anchors + layout) is owned by the laconic-review package, not t
 - **Ids follow the severity mnemonic** B/C/N (a general-scoped concern is still `C`, never `G`); `severity=` is authoritative.
 - **Cross-links** are `links=C2` (finding ids), not Markdown anchors. `laconic-review publish` rewrites them to thread URLs.
 
-Russian prose by default for this project (see CLAUDE.md). Code identifiers, file paths, symbol names, log strings — **always English**, even in Russian prose (the `feedback_string_language_boundaries` rule: Cyrillic in logs/CI/asserts risks mojibake).
+Write the prose in the report's output language — see **Language** below for how it's derived and what stays English regardless.
+
+**Spot the issue; suggest a fix only when it pays.** Your job is to identify problems clearly and explain *why* they matter — resolving them is the author's. But a sharp finding often implies its fix: when one is **major, unambiguous, and cheap to state**, include a concrete suggestion (a code block if it helps) — a little effort here can save the author a lot. Don't attach a speculative fix to every nit; reserve it for where it genuinely lowers total work.
 
 ### 7. Validate once — don't loop
 
@@ -154,14 +158,20 @@ Derive the **output language** in this priority order — first match wins:
 3. The **MR/PR description**.
 4. The **code comments** in the diff.
 
-It's no longer hard-coded (for the Флат project this resolves to Russian). Use one language consistently across the whole report.
+It's derived per review, not hard-coded. Use one language consistently across the whole report.
 
 **English regardless of the output language:**
 - Code identifiers, file paths, symbol names, log strings, commit-message hints — **always**. (The `feedback_string_language_boundaries` rule: Cyrillic in logs/CI/asserts risks mojibake.)
 - Established CS-principle abbreviations: DRY, KISS, SSOT, YAGNI, SOLID, APO, …
-- An English term **only when it is more monosemic** than the output-language word; otherwise use the output language. So in Russian prose write «усиливает C2», not "Related: C2".
+- An English term **only when it is genuinely more monosemic** than the output-language word — a precise technical term with no clean local equivalent; otherwise use the output language.
 
-Cross-references in prose follow the output language; the machine link lives in the anchor's `links=`, and `publish` renders the footer language-neutrally (`🔗`).
+Cross-references **in prose** use the output language ("strengthens C2" / «усиливает C2»). The machine link is the anchor's `links=`; `publish` renders the footer language-neutrally (`🔗`), so never hand-write a cross-link footer.
+
+## Tone
+
+- **Clarity over brevity** — "Clarity is more important than brevity" (Swift API Design Guidelines). A finding the author has to decode twice is half wasted.
+- **No slang** — no script-kiddie or hipster filler. The bar for wit is NSHipster: precise first, clever second.
+- **Measured irony is welcome** where it sharpens the point — but don't write bone-dry prose either. It's one engineer talking to another.
 
 ## Sources to cite
 
@@ -185,3 +195,4 @@ This skill **produces and validates** the report. It does **not** publish: posti
 - `references/example-report.md` — the golden sample (FPM-1653); your emission target
 - the laconic-review package — `Docs/report-format.md` + `LaconicReviewCore` DocC: the authoritative format and field set (`laconic-review lint` is its executable form)
 - `evals/evals.json` — test prompts for verifying the skill
+- `software-development-principles` — bundled companion (design vocabulary + principle grounding); consulted by default
