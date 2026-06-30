@@ -1,0 +1,50 @@
+{
+  "skill_name": "laconic-code-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Сделай ревью этой ветки против develop. Главное — DRY, separation of concerns, потенциальные баги.",
+      "expected_output": "A single Markdown report at `.claude/reviews/<branch>/<N>.md`. It opens with a `<!-- review … -->` anchor, then human front-matter (title, one-paragraph TL;DR, a summary table, a merge recommendation), then findings back-to-back — each a `<!-- finding … -->` anchor followed by its verbatim prose. Severity uses the 🔴/🟡/🟢 scale mirrored from the `severity=` token (blocker/concern/nit); status emoji are separate; sources are inline Markdown links to Apple docs / Swift Evolution / WWDC. There is NO `.findings.json`. `laconic-review lint <file>` exits 0.",
+      "files": [],
+      "expectations": [
+        "The output is a single file at `.claude/reviews/<branch>/1.md` (or `<N>.md` if iteration > 1)",
+        "No `.findings.json` (or any sibling JSON) is created — the report is the only artifact",
+        "The report begins with a `<!-- review branch=… base=… iid=… -->` anchor whose values contain no spaces",
+        "Each finding is a `<!-- finding id=… severity=… status=… scope=… -->` anchor immediately followed by its prose",
+        "`laconic-review lint .claude/reviews/<branch>/<N>.md` exits 0 (no errors)",
+        "Findings run back-to-back: there are no `##` section headers between findings, and the summary table sits in the front-matter before the first finding",
+        "Every `scope=line` finding carries `file` and `line` in its anchor, and the file falls inside the diff range",
+        "Each finding's `severity=` is exactly one of blocker / concern / nit, and its id uses the matching B/C/N prefix (a general-scoped concern is still `C`, never `G`)",
+        "Status emoji ⏳/🛠️/✅/❓ are NOT reused for severity, and severity emoji 🔴/🟡/🟢 are NOT reused for status",
+        "Every claim about Swift runtime / Apple framework behavior is followed by an inline Markdown link to Apple docs, Swift Evolution, or WWDC",
+        "`.claude/reviews/` is in the project's `.gitignore` (appended by the skill if missing)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Compare new commits against your previous review for this branch.",
+      "expected_output": "A new iteration file `<N>.md` (N = previous + 1) produced after reading the previous `<N-1>.md` (its anchors carry the findings — there is no JSON to load). Findings fixed since the last pass appear back-to-back with `status=closed`, citing the fix commit and a one-line verification — NOT under a `## Исправлено` section. Still-open findings carry their original ids with `status=open`. New findings get the next free id in their severity category (never recycling a closed id). A closed-with-nuance pair cross-links via `links=` on both. The front-matter recommendation updates to the new state.",
+      "files": [],
+      "expectations": [
+        "The previous iteration `.claude/reviews/<branch>/<N-1>.md` is read before writing (no `.findings.json` is expected or required)",
+        "No new finding reuses an id that appeared in iteration N-1",
+        "Closed findings are emitted as back-to-back `<!-- finding … status=closed -->` anchors, not collected under a `##` section header",
+        "Status tokens open / in_progress / closed / needs_info are used in `status=` and kept separate from severity",
+        "The merge recommendation in the front-matter updates to reflect the new state (e.g., 'block' → 'merge with caveats')",
+        "`laconic-review lint .claude/reviews/<branch>/<N>.md` exits 0"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Я хочу понять, что ты думаешь про последние коммиты на этой ветке. Особенно по концурренси и архитектуре.",
+      "expected_output": "Despite the informal phrasing, the skill triggers and produces the single anchored Markdown report. Concurrency-relevant findings explicitly reference the `swift-concurrency` skill's knowledge (actors, Sendable, MainActor isolation, reentrancy) with an inline source. Architecture findings reference the `swiftui-foundations` skill (SOLID, naming, structs/classes).",
+      "files": [],
+      "expectations": [
+        "The skill triggers despite the informal Russian phrasing",
+        "At least one finding cites concurrency-specific authority (SE-0306, SE-0392, MainActor docs, or a WWDC concurrency session) inline in its prose",
+        "If the diff touches SwiftUI or architecture, a finding references SRP/MVC/MVVM or naming/structure principles",
+        "The report is a single `.md` with valid `<!-- review … -->` and `<!-- finding … -->` anchors; `laconic-review lint` exits 0; no `.findings.json` is produced"
+      ]
+    }
+  ]
+}

@@ -119,6 +119,17 @@ public struct GitLabConnection: Sendable {
         ).ok
     }
 
+    /// `PUT /projects/:id/merge_requests/:iid/discussions/:discussionId/notes/:noteId` — edit a
+    /// note's body. Used by the publish second pass to rewrite `links=` into resolved thread URLs.
+    public func updateNote(iid: Int, discussionID: String, noteID: Int, body: String) async throws {
+        _ = try await client.putApiV4ProjectsIdMergeRequestsNoteableIdDiscussionsDiscussionIdNotesNoteId(
+            .init(
+                path: .init(id: project, noteableId: iid, discussionId: discussionID, noteId: noteID),
+                body: .json(.init(body: body))
+            )
+        ).ok
+    }
+
     // MARK: - Mapping (GitLab types → neutral DTOs)
 
     private static func summary(_ mr: Components.Schemas.APIEntitiesMergeRequest) -> MergeRequestSummary {

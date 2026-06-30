@@ -5,17 +5,22 @@ public struct PublishedThread: Equatable, Sendable, Codable {
     public let discussionID: String
     public let noteID: Int?
     public let url: String?
+    /// Link ids already rendered as thread URLs in the posted note — the publish second pass uses
+    /// this to skip notes whose cross-links are already resolved.
+    public let resolvedLinks: [String]
 
-    public init(discussionID: String, noteID: Int?, url: String?) {
+    public init(discussionID: String, noteID: Int?, url: String?, resolvedLinks: [String] = []) {
         self.discussionID = discussionID
         self.noteID = noteID
         self.url = url
+        self.resolvedLinks = resolvedLinks
     }
 
     enum CodingKeys: String, CodingKey {
         case discussionID = "discussion_id"
         case noteID = "note_id"
         case url
+        case resolvedLinks = "resolved_links"
     }
 }
 

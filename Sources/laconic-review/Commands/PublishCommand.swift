@@ -44,23 +44,44 @@ struct PublishCommand: AsyncParsableCommand {
         let connection = try options.makeConnection()
         let (mr, diffRefs) = try await connection.mergeRequest(iid: iid)
 
+        // Pass 1 — post every pending finding, recording its thread URL. Forward cross-links (to a
+        // finding posted later in this pass) render as bare ids for now; pass 2 resolves them.
         var posted = 0
         for finding in pending {
+            let (body, resolved) = Self.renderedBody(for: finding, ledger: ledger)
             let result = try await connection.postDiscussion(
-                iid: iid,
-                body: Self.body(for: finding, ledger: ledger),
-                position: finding.position,
-                diffRefs: diffRefs
+                iid: iid, body: body, position: finding.position, diffRefs: diffRefs
             )
             let url = result.noteID.flatMap { id in mr.webURL.map { "\($0)#note_\(id)" } }
             ledger.record(finding.id, PublishedThread(
-                discussionID: result.discussionID, noteID: result.noteID, url: url
+                discussionID: result.discussionID, noteID: result.noteID, url: url, resolvedLinks: resolved
             ))
             try ledger.save(to: ledgerURL)   // incremental write — crash-safe across the loop
             posted += 1
             print("  ✓ \(finding.id) → \(url ?? result.discussionID)")
         }
-        print("\nPublished \(posted); \(skipped) skipped. Ledger: \(ledgerURL.lastPathComponent)")
+
+        // Pass 2 — the ledger now holds every URL: rewrite only the notes whose cross-links can
+        // resolve to more URLs than they currently show (`resolved_links` is stale). Idempotent —
+        // skips already-resolved notes — so a re-run also repairs forward links left bare by an
+        // earlier single-pass publish.
+        var relinked = 0
+        for finding in parsed.findings where !finding.links.isEmpty {
+            guard let thread = ledger.thread(for: finding.id), let noteID = thread.noteID else { continue }
+            let (body, resolved) = Self.renderedBody(for: finding, ledger: ledger)
+            guard Set(resolved) != Set(thread.resolvedLinks) else { continue }
+            try await connection.updateNote(
+                iid: iid, discussionID: thread.discussionID, noteID: noteID, body: body
+            )
+            ledger.record(finding.id, PublishedThread(
+                discussionID: thread.discussionID, noteID: noteID, url: thread.url, resolvedLinks: resolved
+            ))
+            try ledger.save(to: ledgerURL)
+            relinked += 1
+        }
+
+        print("\nPublished \(posted); relinked \(relinked); \(skipped) skipped. "
+            + "Ledger: \(ledgerURL.lastPathComponent)")
     }
 
     /// A human-readable anchor for the dry-run plan.
@@ -70,11 +91,17 @@ struct PublishCommand: AsyncParsableCommand {
         return "\(f.file ?? "?"):\(lines) [\(f.lineType.rawValue)]"
     }
 
-    /// Posted body = the finding's verbatim markdown plus a footer cross-linking related
-    /// findings (linked to their thread URL once that finding is in the ledger; bare id until then).
-    private static func body(for finding: Finding, ledger: PublishLedger) -> String {
-        guard !finding.links.isEmpty else { return finding.markdown }
-        let related = finding.links.map { id in ledger.url(for: id).map { "[\(id)](\($0))" } ?? id }
-        return finding.markdown + "\n\n---\n_Related: \(related.joined(separator: ", "))_"
+    /// Posted body = the finding's verbatim markdown plus a language-neutral footer cross-linking
+    /// related findings. Returns the body and the link ids that resolved to a thread URL (the rest
+    /// stay bare ids until their thread exists — the publish second pass fills them in).
+    private static func renderedBody(for finding: Finding, ledger: PublishLedger) -> (body: String, resolved: [String]) {
+        guard !finding.links.isEmpty else { return (finding.markdown, []) }
+        var resolved: [String] = []
+        let parts = finding.links.map { id -> String in
+            guard let url = ledger.url(for: id) else { return id }
+            resolved.append(id)
+            return "[\(id)](\(url))"
+        }
+        return (finding.markdown + "\n\n🔗 " + parts.joined(separator: " · "), resolved)
     }
 }
