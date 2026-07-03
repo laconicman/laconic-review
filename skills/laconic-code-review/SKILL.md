@@ -108,7 +108,7 @@ The *form* (HTML anchors + layout) is owned by the laconic-review package, not t
 **Hard rules** (the parser enforces them; violating them corrupts published comments):
 - **No `##` section headers between findings, and nothing after the last one** — a finding's prose runs to the next anchor, so any such content leaks into the preceding comment. Use the front-matter for grouping.
 - **`scope=line` needs `file` + `line`** (and the file/line must fall inside the diff range, or GitLab rejects the position).
-- **Ids follow the severity mnemonic** B/C/N (a general-scoped concern is still `C`, never `G`); `severity=` is authoritative.
+- **Severity first, then id.** Rate the finding, then name it: at birth the B/C/N prefix **must match** `severity=`, and the heading emoji mirrors it (`severity=blocker` ⇒ `B<n>` ⇒ 🔴). Ids freeze only once **published** or carried from a previous iteration — while drafting, if you re-rate a finding, renumber it; never leave a newborn `B` wearing 🟡. (`lint` warns on the mismatch.) Scope never enters the id: a general-scoped concern is `C`, never `G`.
 - **Cross-links** are `links=C2` (finding ids), not Markdown anchors. `laconic-review publish` rewrites them to thread URLs.
 
 Write the prose in the report's output language — see **Language** below for how it's derived and what stays English regardless.

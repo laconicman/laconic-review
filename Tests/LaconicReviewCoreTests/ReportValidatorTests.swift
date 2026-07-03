@@ -38,13 +38,33 @@ struct ReportValidatorTests {
         #expect(diagnostics.contains { $0.level == .error })
     }
 
-    @Test("a level-3 heading is not mistaken for a leaked section")
-    func headingLevelsDistinguished() {
-        let c1 = Finding(
-            id: "C1", severity: "nit", status: "closed", scope: .general,
+    @Test("id prefix disagreeing with severity is a warning, not an error")
+    func prefixSeverityMismatch() {
+        let b1 = Finding(
+            id: "B1", severity: "concern", status: "open", scope: .general,
             file: nil, lineStart: nil, lineEnd: nil, lineType: .new, links: [],
-            markdown: "### C1. Fine\nNo level-2 heading here."
+            markdown: "### 🟡 B1. Mislabeled at birth\nbody"
+        )
+        let diagnostics = ReportValidator.validate(report([b1]))
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.level == .warning)
+        #expect(diagnostics.first?.message.contains("renumber") == true)
+        // Matching prefix stays silent.
+        let c1 = Finding(
+            id: "C1", severity: "concern", status: "open", scope: .general,
+            file: nil, lineStart: nil, lineEnd: nil, lineType: .new, links: [],
+            markdown: "### 🟡 C1. Coherent\nbody"
         )
         #expect(ReportValidator.validate(report([c1])).isEmpty)
+    }
+
+    @Test("a level-3 heading is not mistaken for a leaked section")
+    func headingLevelsDistinguished() {
+        let n1 = Finding(
+            id: "N1", severity: "nit", status: "closed", scope: .general,
+            file: nil, lineStart: nil, lineEnd: nil, lineType: .new, links: [],
+            markdown: "### N1. Fine\nNo level-2 heading here."
+        )
+        #expect(ReportValidator.validate(report([n1])).isEmpty)
     }
 }

@@ -52,6 +52,10 @@ sudo ln -sf "$PWD/.build/release/laconic-review" /usr/local/bin/laconic-review
 `PATH` (e.g. `~/bin`) without it. Install the companion **skill** separately — see
 [`skills/README.md`](skills/README.md).
 
+> Because the install is a symlink into `.build/release/`, **`swift build -c release` is the
+> deploy step** — a debug build alone leaves the installed CLI stale. When in doubt,
+> `laconic-review --version` tells you which build you're running.
+
 ## Use
 
 The token is read from the environment (`GITLAB_TOKEN` by default), never passed as a flag.

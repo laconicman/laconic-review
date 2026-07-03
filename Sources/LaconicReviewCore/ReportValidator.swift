@@ -24,6 +24,7 @@ public struct ReportDiagnostic: Equatable, Sendable, Codable {
 public enum ReportValidator {
     static let severities: Set<String> = ["blocker", "concern", "nit"]
     static let statuses: Set<String> = ["open", "in_progress", "closed", "needs_info"]
+    static let severityByPrefix: [Character: String] = ["B": "blocker", "C": "concern", "N": "nit"]
 
     public static func validate(_ report: ReviewReport) -> [ReportDiagnostic] {
         var diagnostics: [ReportDiagnostic] = []
@@ -50,6 +51,14 @@ public enum ReportValidator {
             for link in finding.links where !declaredIDs.contains(link) {
                 diagnostics.append(.init(level: .error, findingID: id,
                     message: "links to unknown finding `\(link)`"))
+            }
+            // The id prefix is a birth mnemonic (B/C/N); `severity=` is authoritative. A mismatch
+            // is legal for a carried-forward finding whose severity was later revised (the id is
+            // frozen), but on a newborn it means the id or the severity is wrong — warn, human decides.
+            if let prefix = finding.id.first, let expected = severityByPrefix[prefix],
+               severities.contains(finding.severity), finding.severity != expected {
+                diagnostics.append(.init(level: .warning, findingID: id,
+                    message: "id prefix `\(prefix)` says \(expected), but severity=\(finding.severity) — if this finding is new, renumber it (ids freeze at publish)"))
             }
             // Back-to-back invariant: a `##` heading inside a finding's prose publishes into the
             // comment body — almost always a leaked section header. Warn, don't fail.

@@ -34,11 +34,23 @@ publish; `closed` closes the thread (`laconic-review resolve-thread`).
 
 ## Finding ids
 
-A stable id `<prefix><n>`: `B1, B2, …` Blocker · `C1, C2, …` Concern · `N1, N2, …` Nit. The prefix
-is a birth mnemonic; `severity=` is authoritative (it wins on conflict), so the id **never
-changes** across iterations — that's the lineage key. There is **no letter for scope**: a
-general-scoped concern is still `C<n>` with `scope=general`, never `G`. New findings take the next
-free number in their category and never recycle a closed one.
+A stable id `<prefix><n>`: `B1, B2, …` Blocker · `C1, C2, …` Concern · `N1, N2, …` Nit.
+
+**At birth, prefix and `severity=` must agree** (and the heading emoji mirrors them): rate first,
+name second. Ids freeze only at **publish** — while the report is a draft, re-rating a finding
+means renumbering it (`C3` promoted to blocker becomes the next free `B<n>`, not a `C` wearing
+🔴). `lint` warns on a prefix/severity mismatch.
+
+After publishing, the id **never changes** across iterations — it's the lineage key — so a
+finding whose severity is *later* revised legitimately keeps its old prefix; that's the one case
+the mismatch warning is expected and ignorable. `severity=` is always the authoritative value.
+
+There is **no letter for scope**: a general-scoped concern is still `C<n>` with `scope=general`,
+never `G`. New findings take the next free number in their category and never recycle a closed one.
+
+**Rating hint:** if the code *does the wrong thing* — correctness, data integrity, a stated goal
+of the MR contradicted — it's a 🔴 blocker even when the fix is one line. 🟡 is for code that
+works but is built wrong; 🟢 for style.
 
 ## Scope
 
@@ -85,6 +97,7 @@ where the reader sees closed vs open.
 ## What not to do
 
 - Reuse 🔴/🟡/🟢 for anything but severity.
+- Publish a newborn finding whose prefix contradicts `severity=` (re-rate ⇒ renumber while drafting).
 - Change a finding's id between iterations, or recycle a closed number.
 - Encode scope in the id (there is no `G`; a general concern is `C<n>`).
 - Put `##` section headers between findings, or anything after the last one (it leaks into a comment).

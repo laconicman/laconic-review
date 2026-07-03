@@ -9,7 +9,7 @@ struct LaconicReview: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "laconic-review",
         abstract: "Read and publish code-review findings to a GitLab merge request.",
-        version: "0.1.0",
+        version: "0.2.0",
         subcommands: [
             WhoAmICommand.self,
             ResolveCommand.self,
