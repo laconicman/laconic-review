@@ -27,7 +27,10 @@ has to be mis-rated as a severity to be filed at all.
 correct rating available.
 
 **Discharge.** A new optional anchor field, decoded as absent when missing so older
-reports stay readable.
+reports stay readable. Model the **taxonomy** Devin's public docs describe — categories
+(bug / security / flag), severity within a category, and an intent axis for flags — not
+its emoji or its embedded metadata values, which it confirmed are not a supported
+external contract.
 
 ### TD-3 — `resolve-thread` posts no prose · open
 

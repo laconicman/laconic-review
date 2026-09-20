@@ -25,29 +25,44 @@ of it is implemented, and each item says what it would cost.
 ### 1. A `kind` axis, separate from severity
 
 Devin marks every finding with a machine-readable `kind` in an HTML comment, and the
-visible marker encodes **kind × severity**:
+visible marker encodes **kind × severity**. Observed across the 92:
 
 | `kind` | Marker | Observed |
 |---|---|---:|
 | `bug`, high | 🔴 red circle | 15 |
 | `bug`, medium | 🟡 yellow circle | 39 |
 | `security` | 🟥 red square | 1 |
-| `analysis`, verification request | 🔍 | 33 |
-| `analysis`, informational receipt | 📝 | 4 |
+| `analysis`, investigate | 🔍 | 33 |
+| `analysis`, informational | 📝 | 4 |
 
-The shape carries the kind (circle = bug, square = security) and the colour carries the
-severity. **No 🟨 or 🟠 appears in any of the 92**; a yellow square would fit the pattern
-as a medium-severity security finding, but that is inference, not observation.
+**Asked the reviewer directly, 2026-09-20, and the answer changes what to adopt.** Its
+reply, in full effect:
 
-**Why this matters here.** `severity` is the only axis this report format has, and the
-rubric forbids reusing its emoji. A finding that says *"this environment lacks `swift`,
-so I could not run the suite — confirm the offline coverage in CI"* is not a blocker, not
-a concern and not a nit. It is a **request for verification**, and today it has to be
-mis-rated to be filed at all. Of 25 findings handled across three rounds, **three** were
-this shape.
+- Security findings have two severities, **Critical** and **Warning**. The public docs
+  describe **red and orange shield icons** — not a guaranteed 🟥/🟨 textual mapping.
+- Analysis flags have two intents, **Investigate** and **Informational**. So 🔍 versus 📝
+  is **intent and actionability, not severity**.
+- The publicly documented top-level categories are **Bugs**, **Security** and **Flags**.
+  Whether the embedded `kind` values are limited to `bug`/`security`/`analysis`, or are a
+  stable external contract at all, it would not confirm.
+- Its closing caution: *the exact emoji and metadata values should not be treated as a
+  supported API without confirmation from the Devin Review team.*
 
-`security` deserves its own kind for the same reason a maintainer reads it differently,
-not because it is more severe.
+**So adopt the taxonomy, not the encoding.** The concepts are documented and worth having:
+a category axis (bug / security / flag), a severity within a category, and — for flags —
+an **intent** axis where *investigate* and *informational* are genuinely different asks
+rather than two severities. Our own markers, our own vocabulary, no coupling to an
+undocumented encoding that can change without notice.
+
+That also settles the 🟨 question the observation could not: a Warning-severity security
+finding **exists as a concept**, so the axis needs the level. What it looks like in our
+reports is ours to choose.
+
+**Why this matters here.** `severity` is the only axis this format has, and the rubric
+forbids reusing its emoji. A finding that says *"this environment lacks `swift`, so I
+could not run the suite — confirm the offline coverage in CI"* is not a blocker, not a
+concern and not a nit. It is an **investigate** flag, and today it has to be mis-rated to
+be filed at all. Of 25 findings handled across three rounds, **three** were this shape.
 
 **Cost.** A new anchor field, `lint` vocabulary, `Docs/report-format.md`, the rubric, the
 golden sample, and the vendored skill copy. Reports written by an older CLI must stay
