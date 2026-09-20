@@ -15,6 +15,12 @@ connection type, not a rewrite.
 
 ## Topics
 
+### Project Direction
+
+- <doc:Design>
+- <doc:Roadmap>
+- <doc:TechDebt>
+
 ### Connecting
 
 - ``GitLabConfig``
