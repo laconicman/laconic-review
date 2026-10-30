@@ -48,6 +48,12 @@ public enum ReportValidator {
                 diagnostics.append(.init(level: .error, findingID: id,
                     message: "scope=line requires `file` and `line` (else it silently degrades to a general note)"))
             }
+            // `file` is fetch-inbox vocab (file-level comments are read-only today); in a
+            // report it would parse but publish as a general note — fail loudly instead.
+            if finding.lineType == .file {
+                diagnostics.append(.init(level: .error, findingID: id,
+                    message: "line_type=file is inbox vocab — findings anchor on lines (new | old) or publish general"))
+            }
             for link in finding.links where !declaredIDs.contains(link) {
                 diagnostics.append(.init(level: .error, findingID: id,
                     message: "links to unknown finding `\(link)`"))

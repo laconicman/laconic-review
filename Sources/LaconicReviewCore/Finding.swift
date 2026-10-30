@@ -38,10 +38,12 @@ public enum FindingScope: String, Sendable, Equatable, Codable {
     case general
 }
 
-/// Which side of the diff a line anchor refers to (`new_line` vs `old_line`).
+/// Which side of the diff an anchor refers to (`new_line` vs `old_line`), or `file` for a
+/// file-level comment that carries a path but no line (GitLab `position_type: "file"`).
 public enum LineSide: String, Sendable, Equatable, Codable {
     case new
     case old
+    case file
 }
 
 /// One review finding: the machine fields from its `<!-- finding … -->` anchor, plus the
@@ -75,7 +77,8 @@ public struct Finding: Equatable, Sendable {
     /// The diff anchor for a line-scoped finding (the *end* line, where review threads attach),
     /// or `nil` for a general finding or one missing its file/line.
     public var position: Position? {
-        guard scope == .line, let file, let line = lineEnd ?? lineStart else { return nil }
+        guard scope == .line, lineType != .file,
+              let file, let line = lineEnd ?? lineStart else { return nil }
         return Position(file: file, line: line, lineType: lineType)
     }
 }
