@@ -22,6 +22,16 @@ struct FetchCommand: AsyncParsableCommand {
     @OptionGroup var options: ConnectionOptions
 
     func run() async throws {
+        do {
+            try await runInner()
+        } catch let e as ValidationError {
+            throw e
+        } catch {
+            throw ValidationError(ErrorExplain.describe(error))
+        }
+    }
+
+    private func runInner() async throws {
         let connection = try options.makeConnection()
         let (mr, _) = try await connection.mergeRequest(iid: iid)
         let threads = try await connection.threads(iid: iid)

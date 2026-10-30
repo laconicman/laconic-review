@@ -37,6 +37,16 @@ struct ReplyCommand: AsyncParsableCommand {
     @OptionGroup var options: ConnectionOptions
 
     func run() async throws {
+        do {
+            try await runInner()
+        } catch let e as ValidationError {
+            throw e
+        } catch {
+            throw ValidationError(ErrorExplain.describe(error))
+        }
+    }
+
+    private func runInner() async throws {
         let text = try replyBody()
         guard !(resolve && unresolve) else {
             throw ValidationError("Pick one of --resolve / --unresolve, not both.")
