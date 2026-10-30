@@ -21,10 +21,19 @@ import OpenAPIRuntime
 public struct GitLabConnection: Sendable {
     private let client: Client
     private let project: String
+    /// The API root the client talks to — surfaced so commands can name it in diagnostics.
+    public let baseURL: URL
 
     public init(config: GitLabConfig) {
-        // Full base URL (http *or* https) via the `serverURL:` init added to GitLabKit.
-        self.client = Client(token: config.token, serverURL: config.baseURL)
+        // Full base URL (http *or* https) via the `serverURL:` init added to GitLabKit;
+        // `session:` carries `HTTP(S)_PROXY`/`ALL_PROXY` env into the transport (a
+        // `URLSession` ignores them by itself) — nil when no proxy is configured.
+        self.client = Client(
+            token: config.token,
+            serverURL: config.baseURL,
+            session: ProxyEnvironment.session()
+        )
+        self.baseURL = config.baseURL
         self.project = config.projectID
     }
 

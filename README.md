@@ -88,6 +88,33 @@ laconic-review reply 1263 <discussion-id> --body-file reply.md --confirm   # tex
 `reply` is dry-run unless `--confirm`; name the fix commit in the body so the asker can
 distinguish "claimed fixed" from "verified".
 
+## Connectivity
+
+The client honors the conventional proxy environment — `HTTP_PROXY` / `HTTPS_PROXY` /
+`ALL_PROXY` (`http://…`, `socks5(h)://…`, `host:port`) and `NO_PROXY`. That is the seam
+`elsewhere run` exports into its child, so any route elsewhere can reach, laconic-review
+can use:
+
+```bash
+# Corp GitLab behind VPN — nothing to do when the tunnel is up:
+laconic-review fetch 1263
+
+# Through an elsewhere exit that lands inside the corp network:
+elsewhere run --exit <corp-exit> -- laconic-review fetch 1263
+
+# Same for a plain HTTP/SOCKS proxy:
+HTTPS_PROXY=http://proxy.corp:3128 laconic-review fetch 1263
+```
+
+`user:pass@` in a proxy URL is honored for the common single-proxy case; when several
+proxies carry different credentials the last one wins (a `connectionProxyDictionary`
+limitation). `NO_PROXY=*` disables proxies entirely.
+
+On a network failure the error names the likely cause: a hostname resolving into fake-IP /
+reserved space (240/4, 198.18/15, 100.64/10) means a tunnel's fake resolver owns the name —
+the corp VPN is down or another VPN hijacked DNS — and the message says so, instead of a
+bare "The network connection was lost".
+
 ## Report format (the inviolable bits)
 
 Prose is freely editable; machine fields ride in one HTML comment per finding that no editor
