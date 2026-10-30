@@ -59,15 +59,23 @@ struct ReplyCommand: AsyncParsableCommand {
         }
 
         let connection = try options.makeConnection()
+        // Post first, then resolve and fetch the permalink — failures after the post
+        // must not look like the note failed (a retry would duplicate it).
         let posted = try await connection.postNote(iid: iid, discussionID: discussionID, body: text)
+        var tail = ""
         if resolve || unresolve {
-            try await connection.resolveThread(iid: iid, discussionID: discussionID, resolved: resolve)
+            do {
+                try await connection.resolveThread(iid: iid, discussionID: discussionID, resolved: resolve)
+                tail = resolve ? " · resolved" : " · unresolved"
+            } catch {
+                print("⚠ note posted, but \(resolve ? "resolve" : "unresolve") failed: \(ErrorExplain.describe(error)) — close it via `resolve-thread`.")
+            }
         }
 
-        // The note permalink needs the MR's web_url — one extra read for a copyable result.
-        let (mr, _) = try await connection.mergeRequest(iid: iid)
-        let url = posted.noteID.flatMap { id in mr.webURL.map { "\($0)#note_\(id)" } }
-        print("✓ replied → \(url ?? discussionID)\(resolve ? " · resolved" : unresolve ? " · unresolved" : "")")
+        // The note permalink needs the MR's web_url — cosmetic; never fail the reply for it.
+        let mr = (try? await connection.mergeRequest(iid: iid))?.0
+        let url = posted.noteID.flatMap { id in mr?.webURL.map { "\($0)#note_\(id)" } }
+        print("✓ replied → \(url ?? discussionID)\(tail)")
     }
 
     private func replyBody() throws -> String {
