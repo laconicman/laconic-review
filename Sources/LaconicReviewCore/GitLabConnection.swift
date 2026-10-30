@@ -242,6 +242,11 @@ public struct GitLabConnection: Sendable {
         if let file = unwrap("old_path") as? String, let line = int("old_line") {
             return Position(file: file, line: line, lineType: .old)
         }
+        // File-level comment (`position_type: "file"`): a path but no line — keep the
+        // file name rather than dropping the anchor to `general`.
+        if let file = (unwrap("new_path") ?? unwrap("old_path")) as? String {
+            return Position(file: file, line: nil, lineType: .file)
+        }
         return nil
     }
 }

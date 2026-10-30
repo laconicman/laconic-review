@@ -36,7 +36,9 @@ public enum InboxRenderer {
     static func threadBlock(_ thread: DiscussionThread, number: Int) -> String {
         var anchor = "<!-- thread id=\(thread.id) no=\(number) state=\(state(thread)) resolvable=\(thread.resolvable)"
         if let position = thread.position {
-            anchor += " file=\(position.file) line=\(position.line) line_type=\(position.lineType.rawValue)"
+            anchor += " file=\(position.file)"
+            if let line = position.line { anchor += " line=\(line)" }
+            anchor += " line_type=\(position.lineType.rawValue)"
         }
         anchor += " -->"
 
@@ -62,7 +64,8 @@ public enum InboxRenderer {
 
     static func location(_ thread: DiscussionThread) -> String {
         guard let position = thread.position else { return "general" }
-        return "\((position.file as NSString).lastPathComponent):\(position.line)"
+        let base = (position.file as NSString).lastPathComponent
+        return position.line.map { "\(base):\($0)" } ?? "\(base) (file)"
     }
 
     static func iso8601(_ date: Date) -> String {

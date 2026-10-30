@@ -42,14 +42,15 @@ public struct DiffRefs: Equatable, Sendable, Codable {
     public let startSha: String?
 }
 
-/// A neutral line anchor for a discussion: a file + line on one side of the diff. The seam
+/// A neutral diff anchor for a discussion: a file, and a line on one side of the diff —
+/// or just the file for file-level comments (`line == nil`, `lineType == .file`). The seam
 /// combines this with ``DiffRefs`` (fetched at publish) to build GitLab's `position` object.
 public struct Position: Equatable, Sendable, Codable {
     public let file: String
-    public let line: Int
+    public let line: Int?
     public let lineType: LineSide
 
-    public init(file: String, line: Int, lineType: LineSide) {
+    public init(file: String, line: Int?, lineType: LineSide) {
         self.file = file
         self.line = line
         self.lineType = lineType

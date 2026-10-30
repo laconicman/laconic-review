@@ -52,6 +52,22 @@ struct InboxRendererTests {
                     ),
                 ]
             ),
+            DiscussionThread(
+                id: "bc1ef6ea",
+                individualNote: false,
+                resolvable: true,
+                resolved: false,
+                notes: [
+                    ThreadNote(
+                        id: 104,
+                        author: "Лавров",
+                        username: "s.lavrov",
+                        createdAt: nil,
+                        body: "Нужна ли в этом репозитории папка .devin?",
+                        position: Position(file: "ThirdParty/Vendor/PJSIP/.devin/wiki.json", line: nil, lineType: .file)
+                    ),
+                ]
+            ),
         ]
     )
 
@@ -59,7 +75,7 @@ struct InboxRendererTests {
     func inboxAnchor() {
         let md = InboxRenderer.render(inbox)
         #expect(md.contains("<!-- inbox iid=1263 branch=imp/swift-pjsip-0-6-0/FPM-1856"))
-        #expect(md.contains("open=1 resolved=0 -->"))
+        #expect(md.contains("open=2 resolved=0 -->"))
     }
 
     @Test("thread anchors carry id, number, state and diff position")
@@ -70,6 +86,11 @@ struct InboxRendererTests {
             + "file=flat-ios/SIP/SipService.swift line=329 line_type=new -->"
         ))
         #expect(md.contains("<!-- thread id=deadbeef no=2 state=note resolvable=false -->"))
+        // File-level anchor: the file name survives, `line=` is omitted, `line_type=file`.
+        #expect(md.contains(
+            "<!-- thread id=bc1ef6ea no=3 state=open resolvable=true "
+            + "file=ThirdParty/Vendor/PJSIP/.devin/wiki.json line_type=file -->"
+        ))
     }
 
     @Test("notes render verbatim in order under T-headings")
@@ -79,6 +100,7 @@ struct InboxRendererTests {
         #expect(md.contains("**Лавров** (@s.lavrov), 2025-10-30 16:00 UTC:"))
         #expect(md.contains("Раньше был try-catch. Хорошо бы добавить логирование."))
         #expect(md.contains("### T2 · general — 💬 note"))
+        #expect(md.contains("### T3 · wiki.json (file) — ⏳ open"))
         // First note before second within the thread.
         let t1 = md.range(of: "try-catch")
         let t2 = md.range(of: "Сделано.")
@@ -87,8 +109,9 @@ struct InboxRendererTests {
 
     @Test("counts: open counts resolvable-and-unresolved only")
     func counts() {
-        #expect(inbox.openCount == 1)
+        #expect(inbox.openCount == 2)
         #expect(inbox.resolvedCount == 0)
         #expect(inbox.threads[0].position?.file == "flat-ios/SIP/SipService.swift")
+        #expect(inbox.threads[2].position?.line == nil)
     }
 }
