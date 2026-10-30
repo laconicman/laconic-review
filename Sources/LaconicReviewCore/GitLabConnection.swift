@@ -74,12 +74,24 @@ public struct GitLabConnection: Sendable {
         try await rawDiscussions(iid: iid).compactMap(Self.thread)
     }
 
-    /// `GET /projects/:id/merge_requests/:iid/discussions`, unmapped.
+    /// `GET /projects/:id/merge_requests/:iid/discussions`, unmapped — all pages.
+    /// GitLab paginates at 20 by default; without paging, threads past the first
+    /// page would silently never reach the inbox.
     private func rawDiscussions(iid: Int) async throws -> [Components.Schemas.APIEntitiesDiscussion] {
-        let output = try await client.getApiV4ProjectsIdMergeRequestsNoteableIdDiscussions(
-            .init(path: .init(id: project, noteableId: iid))   // notes/discussions: id is a String
-        )
-        return try output.ok.body.json
+        var all: [Components.Schemas.APIEntitiesDiscussion] = []
+        var page = 1
+        while true {
+            let output = try await client.getApiV4ProjectsIdMergeRequestsNoteableIdDiscussions(
+                .init(
+                    path: .init(id: project, noteableId: iid),   // notes/discussions: id is a String
+                    query: .init(page: page, perPage: 100)
+                )
+            )
+            let batch = try output.ok.body.json
+            all += batch
+            if batch.count < 100 { return all }
+            page += 1
+        }
     }
 
     // MARK: - Writes
