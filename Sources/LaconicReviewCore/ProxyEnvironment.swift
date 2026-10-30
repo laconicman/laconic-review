@@ -25,8 +25,8 @@ import Foundation
 ///   so `session` returns an explicitly-direct session rather than `nil`.
 /// - `user:password@` in a proxy URL maps to `kCFProxyUsernameKey`/`kCFProxyPasswordKey` —
 ///   shared keys, written only when every filled slot is the same `host:port` endpoint
-///   and the cred-bearing variables agree on one pair; across distinct endpoints they
-///   would leak Basic auth to the wrong proxy, so they're dropped instead.
+///   and the cred-bearing variables that filled them agree on one pair; across distinct
+///   endpoints they would leak Basic auth to the wrong proxy, so they're dropped instead.
 ///
 /// Two limits the dictionary can't express, both fail closed toward *more* proxying:
 /// a socks-valued scheme variable fills the single global SOCKS slot, so it may also
@@ -51,18 +51,21 @@ public enum ProxyEnvironment {
     /// Parse the environment into a ``Resolution`` — see the enum docstring for semantics.
     public static func resolve(environment env: [String: String]) -> Resolution {
         var dict: [String: Any] = [:]
+        // Which spec owns each filled slot — a fallback that filled nothing (e.g.
+        // ALL_PROXY when both schemes are claimed) must not weigh in on credentials.
+        var owners: [String: ProxySpec] = [:]
         // A scheme is "claimed" only when its variable actually parsed — a garbage value
         // must not shadow ALL_PROXY into silence.
         let httpSpec = envValue("http_proxy", "HTTP_PROXY", in: env).flatMap(parse)
         let httpsSpec = envValue("https_proxy", "HTTPS_PROXY", in: env).flatMap(parse)
-        apply(httpSpec, httpSlot: true, httpsSlot: false, socksSlot: true, into: &dict)
-        apply(httpsSpec, httpSlot: false, httpsSlot: true, socksSlot: true, into: &dict)
+        apply(httpSpec, httpSlot: true, httpsSlot: false, socksSlot: true, into: &dict, owners: &owners)
+        apply(httpsSpec, httpSlot: false, httpsSlot: true, socksSlot: true, into: &dict, owners: &owners)
         let allSpec = envValue("all_proxy", "ALL_PROXY", in: env).flatMap(parse)
         apply(
             allSpec,
             httpSlot: allSpec?.kind == .http && httpSpec == nil,
             httpsSlot: allSpec?.kind == .http && httpsSpec == nil,
-            socksSlot: true, fillOnly: true, into: &dict
+            socksSlot: true, fillOnly: true, into: &dict, owners: &owners
         )
         // `NO_PROXY=*` must win even with no proxy variables at all: `.none` would fall
         // back to the default session, which still honors macOS *system* proxy settings.
@@ -79,7 +82,7 @@ public enum ProxyEnvironment {
         // different endpoints would hand one proxy's Basic auth to another. An endpoint
         // is host *and* port: `proxy:8080` vs `proxy:9090` are different services on one
         // host. Only write creds when every filled slot is the same endpoint and the
-        // cred-bearing variables agree on one user/password pair.
+        // cred-bearing variables *that own a filled slot* agree on one user/password pair.
         let endpoints = [
             (kCFNetworkProxiesHTTPProxy, kCFNetworkProxiesHTTPPort),
             (kCFNetworkProxiesHTTPSProxy, kCFNetworkProxiesHTTPSPort),
@@ -89,7 +92,7 @@ public enum ProxyEnvironment {
                   let port = dict[portKey as String] as? Int else { return nil }
             return "\(host):\(port)"
         }
-        let credSpecs = [httpSpec, httpsSpec, allSpec].compactMap { $0 }.filter { $0.user != nil }
+        let credSpecs = owners.values.filter { $0.user != nil }
         if Set(endpoints).count == 1, let creds = credSpecs.first,
            credSpecs.allSatisfy({ $0.user == creds.user && $0.password == creds.password }) {
             dict[kCFProxyUsernameKey as String] = creds.user
@@ -150,9 +153,10 @@ public enum ProxyEnvironment {
 
     /// Write `spec` into the slots it qualifies for; `fillOnly` keeps existing slots intact
     /// (that is how `ALL_PROXY` behaves relative to the scheme-specific variables).
+    /// `owners` records the spec behind each filled slot, keyed by the slot's enable key.
     private static func apply(
         _ spec: ProxySpec?, httpSlot: Bool, httpsSlot: Bool, socksSlot: Bool,
-        fillOnly: Bool = false, into dict: inout [String: Any]
+        fillOnly: Bool = false, into dict: inout [String: Any], owners: inout [String: ProxySpec]
     ) {
         guard let spec else { return }
         switch spec.kind {
@@ -161,17 +165,20 @@ public enum ProxyEnvironment {
                 dict[kCFNetworkProxiesHTTPEnable as String] = true
                 dict[kCFNetworkProxiesHTTPProxy as String] = spec.host
                 dict[kCFNetworkProxiesHTTPPort as String] = spec.port
+                owners[kCFNetworkProxiesHTTPEnable as String] = spec
             }
             if httpsSlot && (!fillOnly || dict[kCFNetworkProxiesHTTPSEnable as String] == nil) {
                 dict[kCFNetworkProxiesHTTPSEnable as String] = true
                 dict[kCFNetworkProxiesHTTPSProxy as String] = spec.host
                 dict[kCFNetworkProxiesHTTPSPort as String] = spec.port
+                owners[kCFNetworkProxiesHTTPSEnable as String] = spec
             }
         case .socks:
             if socksSlot && (!fillOnly || dict[kCFNetworkProxiesSOCKSEnable as String] == nil) {
                 dict[kCFNetworkProxiesSOCKSEnable as String] = true
                 dict[kCFNetworkProxiesSOCKSProxy as String] = spec.host
                 dict[kCFNetworkProxiesSOCKSPort as String] = spec.port
+                owners[kCFNetworkProxiesSOCKSEnable as String] = spec
             }
         }
     }

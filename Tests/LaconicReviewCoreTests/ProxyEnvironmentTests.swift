@@ -148,6 +148,18 @@ struct ProxyEnvironmentTests {
         #expect(value(kCFProxyUsernameKey as String, in: d) == nil)
     }
 
+    @Test("an ALL_PROXY that filled no slot does not veto the active proxy's creds")
+    func credentialsUnusedFallback() {
+        let d = dict([
+            "http_proxy": "http://u:p@proxy.local:8080",
+            "https_proxy": "http://u:p@proxy.local:8080",
+            "ALL_PROXY": "http://other:secret@backup.local:9090",
+        ])
+        #expect(value(kCFNetworkProxiesHTTPProxy as String, in: d) as? String == "proxy.local")
+        #expect(value(kCFProxyUsernameKey as String, in: d) as? String == "u")
+        #expect(value(kCFProxyPasswordKey as String, in: d) as? String == "p")
+    }
+
     @Test("creds are written when both variables name the same endpoint and pair")
     func credentialsSharedEndpoint() {
         let d = dict([
