@@ -22,17 +22,19 @@ struct FetchCommand: AsyncParsableCommand {
     @OptionGroup var options: ConnectionOptions
 
     func run() async throws {
+        var connection: GitLabConnection?
         do {
-            try await runInner()
+            let conn = try options.makeConnection()
+            connection = conn
+            try await runInner(connection: conn)
         } catch let e as ValidationError {
             throw e
         } catch {
-            throw ValidationError(ErrorExplain.describe(error))
+            throw ValidationError(ErrorExplain.describe(error, host: connection?.baseURL.host))
         }
     }
 
-    private func runInner() async throws {
-        let connection = try options.makeConnection()
+    private func runInner(connection: GitLabConnection) async throws {
         let (mr, _) = try await connection.mergeRequest(iid: iid)
         let threads = try await connection.threads(iid: iid)
         let inbox = Inbox(
