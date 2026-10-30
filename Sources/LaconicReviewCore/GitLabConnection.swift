@@ -1,6 +1,7 @@
 import Foundation
 import GitLabKit
 import GitLabOpenAPI
+import OpenAPIRuntime
 
 /// The single GitLab-aware seam.
 ///
@@ -64,10 +65,21 @@ public struct GitLabConnection: Sendable {
     /// Drops threads where every note is a system note (`'added 1 commit'`, etc.), matching
     /// the publish-side idempotency rule.
     public func discussions(iid: Int) async throws -> [DiscussionSummary] {
+        try await rawDiscussions(iid: iid).compactMap(Self.discussion)
+    }
+
+    /// The same endpoint as ``discussions(iid:)``, mapped to full threads — every non-system
+    /// note body verbatim, with author and diff anchor. This is what `fetch` hands to an agent.
+    public func threads(iid: Int) async throws -> [DiscussionThread] {
+        try await rawDiscussions(iid: iid).compactMap(Self.thread)
+    }
+
+    /// `GET /projects/:id/merge_requests/:iid/discussions`, unmapped.
+    private func rawDiscussions(iid: Int) async throws -> [Components.Schemas.APIEntitiesDiscussion] {
         let output = try await client.getApiV4ProjectsIdMergeRequestsNoteableIdDiscussions(
             .init(path: .init(id: project, noteableId: iid))   // notes/discussions: id is a String
         )
-        return try output.ok.body.json.compactMap(Self.discussion)
+        return try output.ok.body.json
     }
 
     // MARK: - Writes
@@ -107,6 +119,17 @@ public struct GitLabConnection: Sendable {
             discussionID: discussion.id ?? "",
             noteID: discussion.notes?.first?.id.map(Int.init)
         )
+    }
+
+    /// `POST /projects/:id/merge_requests/:iid/discussions/:discussionId/notes` — reply in a thread.
+    public func postNote(iid: Int, discussionID: String, body: String) async throws -> PostedDiscussion {
+        let note = try await client.postApiV4ProjectsIdMergeRequestsNoteableIdDiscussionsDiscussionIdNotes(
+            .init(
+                path: .init(id: project, noteableId: iid, discussionId: discussionID),
+                body: .json(.init(body: body))
+            )
+        ).created.body.json
+        return PostedDiscussion(discussionID: discussionID, noteID: note.id.map { Int($0) })
     }
 
     /// `PUT /projects/:id/merge_requests/:iid/discussions/:discussionId` — resolve/unresolve.
@@ -170,5 +193,55 @@ public struct GitLabConnection: Sendable {
             onDiff: notes.contains { $0.position != nil },
             preview: notes.first?.body.map { String($0.prefix(120)) }
         )
+    }
+
+    private static func thread(_ d: Components.Schemas.APIEntitiesDiscussion) -> DiscussionThread? {
+        let allNotes = d.notes ?? []
+        guard !allNotes.isEmpty, !allNotes.allSatisfy({ $0.system == true }) else { return nil }
+        let notes = allNotes.filter { $0.system != true }.map(Self.threadNote)
+        return DiscussionThread(
+            id: d.id ?? "",
+            individualNote: d.individualNote ?? false,
+            resolvable: d.resolvable ?? allNotes.contains { $0.resolvable == true },
+            resolved: d.resolved ?? allNotes.contains { $0.resolved == true },
+            notes: notes
+        )
+    }
+
+    private static func threadNote(_ n: Components.Schemas.APIEntitiesNote) -> ThreadNote {
+        ThreadNote(
+            id: n.id ?? -1,
+            author: n.author?.name ?? "",
+            username: n.author?.username ?? "",
+            createdAt: n.createdAt,
+            body: n.body ?? "",
+            position: Self.position(n.position)
+        )
+    }
+
+    /// GitLab ships `position` as an untyped object — pull new/old path+line out of the
+    /// container (`new_path`+`new_line` win over `old_*`; GitLab sets both sides on a new line).
+    private static func position(_ container: OpenAPIObjectContainer?) -> Position? {
+        // `value` is `[String: (any Sendable)?]` — subscripting yields a double-optional.
+        func unwrap(_ key: String) -> (any Sendable)? {
+            guard let raw = container?.value[key], let v = raw else { return nil }
+            return v
+        }
+        func int(_ key: String) -> Int? {
+            switch unwrap(key) {
+            case let i as Int: return i
+            case let i64 as Int64: return Int(i64)
+            case let d as Double: return Int(d)
+            case let s as String: return Int(s)
+            default: return nil
+            }
+        }
+        if let file = unwrap("new_path") as? String, let line = int("new_line") {
+            return Position(file: file, line: line, lineType: .new)
+        }
+        if let file = unwrap("old_path") as? String, let line = int("old_line") {
+            return Position(file: file, line: line, lineType: .old)
+        }
+        return nil
     }
 }

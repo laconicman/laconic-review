@@ -67,14 +67,26 @@ export GITLAB_TOKEN="glpat-…"
 laconic-review whoami
 laconic-review resolve fix/logout-sometimes/FPM-1653 --base develop
 laconic-review diff-refs 965
-laconic-review discussions 965
-laconic-review whoami --json          # any command: machine-readable output
+laconic-review discussions 965      # 120-char previews — quick scan
+laconic-review fetch 965            # full threads → .claude/reviews/<branch>/inbox-965.md
+laconic-review whoami --json        # any command: machine-readable output
 
 # Publish a review report's findings to the MR (dry-run, then for real):
 laconic-review publish .claude/reviews/fix-logout/1.md            # offline dry-run — prints the plan
 laconic-review publish .claude/reviews/fix-logout/1.md --confirm  # posts; records 1.published.json
 laconic-review resolve-thread .claude/reviews/fix-logout/1.md C1 --confirm   # resolve a finding's thread
+
+# Inbound loop — the review *of* your branch: fetch → fix → reply → resolve:
+laconic-review fetch 1263                                    # every thread, verbatim, anchored
+laconic-review reply 1263 <discussion-id> --body "…"         # dry-run — prints the plan
+laconic-review reply 1263 <discussion-id> --body "…" --resolve --confirm   # post + resolve
+laconic-review reply 1263 <discussion-id> --body-file reply.md --confirm   # text from a file/stdin
 ```
+
+`fetch` drops every non-system thread — full note bodies, authors, diff anchors — into
+`inbox-<iid>.md` under the MR's source branch, in the same anchored-comment format as reports.
+`reply` is dry-run unless `--confirm`; name the fix commit in the body so the asker can
+distinguish "claimed fixed" from "verified".
 
 ## Report format (the inviolable bits)
 
@@ -104,9 +116,10 @@ the skill and the CLI.
 
 ## Status
 
-Phase 2.b. Read: `whoami`, `resolve`, `diff-refs`, `discussions`. Write (dry-run unless
-`--confirm`): `publish` parses the markdown SSOT, fetches `diff_refs`, and posts line-anchored
-+ general discussions idempotently (via `<N>.published.json`); `resolve-thread` resolves a
-published finding's thread; cross-links between findings resolve to thread URLs in a second
-pass. The companion skill in `skills/` emits this format. Next: package the repo as a Claude
-plugin (`.claude-plugin/plugin.json`).
+Phase 2.c. Read: `whoami`, `resolve`, `diff-refs`, `discussions` (previews), `fetch` (full
+threads → anchored inbox file). Write (dry-run unless `--confirm`): `publish` parses the
+markdown SSOT, fetches `diff_refs`, and posts line-anchored + general discussions idempotently
+(via `<N>.published.json`); `reply` posts into an existing thread (`--resolve`/`--unresolve`);
+`resolve-thread` resolves a published finding's thread; cross-links between findings resolve
+to thread URLs in a second pass. The companion skill in `skills/` emits this format. Next:
+package the repo as a Claude plugin (`.claude-plugin/plugin.json`).

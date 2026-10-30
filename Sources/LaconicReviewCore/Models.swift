@@ -78,3 +78,72 @@ public struct DiscussionSummary: Equatable, Sendable, Codable {
     public let onDiff: Bool
     public let preview: String?
 }
+
+/// One note inside a review thread — everything `fetch` needs to hand an agent.
+public struct ThreadNote: Equatable, Sendable, Codable {
+    public let id: Int64
+    /// Display name ("Иван Лавров") and handle ("s.lavrov") of the author.
+    public let author: String
+    public let username: String
+    public let createdAt: Date?
+    /// The note body, verbatim markdown.
+    public let body: String
+    /// A diff anchor when the thread sits on a line (`nil` for general threads).
+    public let position: Position?
+
+    public init(id: Int64, author: String, username: String, createdAt: Date?, body: String, position: Position?) {
+        self.id = id
+        self.author = author
+        self.username = username
+        self.createdAt = createdAt
+        self.body = body
+        self.position = position
+    }
+}
+
+/// A review thread with full note bodies — the unit `fetch` delivers.
+/// System notes are dropped at mapping time; threads that held only system notes are dropped too.
+public struct DiscussionThread: Equatable, Sendable, Codable {
+    public let id: String
+    /// GitLab's `individual_note`: a standalone comment, not a resolvable thread.
+    public let individualNote: Bool
+    public let resolvable: Bool
+    public let resolved: Bool
+    public let notes: [ThreadNote]
+
+    public init(id: String, individualNote: Bool, resolvable: Bool, resolved: Bool, notes: [ThreadNote]) {
+        self.id = id
+        self.individualNote = individualNote
+        self.resolvable = resolvable
+        self.resolved = resolved
+        self.notes = notes
+    }
+
+    /// The thread's diff anchor — GitLab puts the same position on each note of the thread.
+    public var position: Position? { notes.lazy.compactMap(\.position).first }
+
+    /// Open business for the merge author: a resolvable thread nobody resolved yet.
+    public var isOpen: Bool { resolvable && !resolved }
+}
+
+/// What `fetch` returns: the MR plus every non-system thread, verbatim.
+public struct Inbox: Equatable, Sendable, Codable {
+    public let iid: Int
+    public let title: String
+    public let webURL: String?
+    public let branch: String
+    public let fetchedAt: Date
+    public let threads: [DiscussionThread]
+
+    public init(iid: Int, title: String, webURL: String?, branch: String, fetchedAt: Date, threads: [DiscussionThread]) {
+        self.iid = iid
+        self.title = title
+        self.webURL = webURL
+        self.branch = branch
+        self.fetchedAt = fetchedAt
+        self.threads = threads
+    }
+
+    public var openCount: Int { threads.filter(\.isOpen).count }
+    public var resolvedCount: Int { threads.filter(\.resolved).count }
+}

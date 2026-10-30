@@ -14,9 +14,11 @@ struct LaconicReview: AsyncParsableCommand {
             WhoAmICommand.self,
             ResolveCommand.self,
             DiscussionsCommand.self,
+            FetchCommand.self,
             DiffRefsCommand.self,
             LintCommand.self,
             PublishCommand.self,
+            ReplyCommand.self,
             ResolveThreadCommand.self,
         ]
     )
