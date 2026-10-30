@@ -36,7 +36,7 @@ public enum InboxRenderer {
     static func threadBlock(_ thread: DiscussionThread, number: Int) -> String {
         var anchor = "<!-- thread id=\(thread.id) no=\(number) state=\(state(thread)) resolvable=\(thread.resolvable)"
         if let position = thread.position {
-            anchor += " file=\(position.file)"
+            anchor += " file=\(anchorPath(position.file))"
             if let line = position.line { anchor += " line=\(line)" }
             anchor += " line_type=\(position.lineType.rawValue)"
         }
@@ -60,6 +60,14 @@ public enum InboxRenderer {
 
     static func stateEmoji(_ thread: DiscussionThread) -> String {
         thread.resolved ? "✅" : (thread.resolvable ? "⏳" : "💬")
+    }
+
+    /// Anchor values are space-free `key=value` — a path containing spaces would silently
+    /// truncate at the first space, so percent-encode everything outside a path-safe set.
+    static func anchorPath(_ path: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~/")
+        return path.addingPercentEncoding(withAllowedCharacters: allowed) ?? path
     }
 
     static func location(_ thread: DiscussionThread) -> String {
