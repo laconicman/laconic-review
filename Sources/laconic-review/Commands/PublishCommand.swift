@@ -40,17 +40,26 @@ struct PublishCommand: AsyncParsableCommand {
             return
         }
 
-        // Confirmed: diff_refs is the server's truth for `position`, fetched fresh now.
+        // Confirmed: diff_refs is the server's truth for `position`, fetched fresh now —
+        // and the MR diffs that tell added lines from context lines (which need both
+        // `old_*` and `new_*` coordinates, or GitLab answers `badRequest`).
         let connection = try options.makeConnection()
         let (mr, diffRefs) = try await connection.mergeRequest(iid: iid)
+        let lineMaps = DiffParser.lineMaps(for: try await connection.mergeRequestDiffs(iid: iid))
 
         // Pass 1 — post every pending finding, recording its thread URL. Forward cross-links (to a
         // finding posted later in this pass) render as bare ids for now; pass 2 resolves them.
         var posted = 0
+        var demoted = 0
         for finding in pending {
             let (body, resolved) = Self.renderedBody(for: finding, ledger: ledger)
+            let anchor = finding.position.flatMap { AnchorResolver.resolve($0, in: lineMaps) }
+            if finding.position != nil && anchor == nil {
+                demoted += 1
+                print("  ⚠ \(finding.id): anchor outside the diff — posting as a general note")
+            }
             let result = try await connection.postDiscussion(
-                iid: iid, body: body, position: finding.position, diffRefs: diffRefs
+                iid: iid, body: body, position: anchor, diffRefs: diffRefs
             )
             let url = result.noteID.flatMap { id in mr.webURL.map { "\($0)#note_\(id)" } }
             ledger.record(finding.id, PublishedThread(
@@ -80,8 +89,9 @@ struct PublishCommand: AsyncParsableCommand {
             relinked += 1
         }
 
-        print("\nPublished \(posted); relinked \(relinked); \(skipped) skipped. "
-            + "Ledger: \(ledgerURL.lastPathComponent)")
+        print("\nPublished \(posted); relinked \(relinked); \(skipped) skipped"
+            + (demoted > 0 ? "; \(demoted) anchor(s) demoted to general" : "")
+            + ". Ledger: \(ledgerURL.lastPathComponent)")
     }
 
     /// A human-readable anchor for the dry-run plan.

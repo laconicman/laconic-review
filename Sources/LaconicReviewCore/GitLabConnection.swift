@@ -74,6 +74,28 @@ public struct GitLabConnection: Sendable {
         try await rawDiscussions(iid: iid).compactMap(Self.thread)
     }
 
+    /// `GET /projects/:id/merge_requests/:iid/diffs` — every changed file's unified diff.
+    /// Publish resolves line anchors against these (context lines need both `old_*` and
+    /// `new_*` coordinates). Paginates like ``rawDiscussions(iid:)``.
+    public func mergeRequestDiffs(iid: Int) async throws -> [FileDiff] {
+        var all: [FileDiff] = []
+        var page = 1
+        while true {
+            let output = try await client.getApiV4ProjectsIdMergeRequestsMergeRequestIidDiffs(
+                .init(
+                    path: .init(id: .case1(project), mergeRequestIid: iid),
+                    query: .init(page: page, perPage: 100)
+                )
+            )
+            let batch = try output.ok.body.json
+            all += batch.map {
+                FileDiff(oldPath: $0.oldPath ?? "", newPath: $0.newPath ?? "", diff: $0.diff ?? "")
+            }
+            if batch.count < 100 { return all }
+            page += 1
+        }
+    }
+
     /// `GET /projects/:id/merge_requests/:iid/discussions`, unmapped — all pages.
     /// GitLab paginates at 20 by default; without paging, threads past the first
     /// page would silently never reach the inbox.
@@ -98,10 +120,12 @@ public struct GitLabConnection: Sendable {
 
     /// `POST /projects/:id/merge_requests/:iid/discussions` — create a thread.
     ///
-    /// Pass `position` **and** `diffRefs` for a line-anchored thread; omit either for a general
-    /// note. `diffRefs` is the server's truth for `position`, fetched fresh via ``mergeRequest(iid:)``.
+    /// Pass a ``ResolvedPosition`` **and** `diffRefs` for a line-anchored thread; pass `nil`
+    /// for a general note. `diffRefs` is the server's truth for `position`, fetched fresh via
+    /// ``mergeRequest(iid:)``; the position itself comes from ``AnchorResolver`` run over
+    /// ``mergeRequestDiffs(iid:)`` — a context line needs both `old_*` and `new_*` fields.
     public func postDiscussion(
-        iid: Int, body: String, position: Position?, diffRefs: DiffRefs?
+        iid: Int, body: String, position: ResolvedPosition?, diffRefs: DiffRefs?
     ) async throws -> PostedDiscussion {
         // Build the body via the stable operation type + inferred `.init`, so the unstable
         // generated `RequestBody<hash>` name never appears here (see the GitLabKit upstream note).
@@ -115,10 +139,10 @@ public struct GitLabConnection: Sendable {
                     startSha: diffRefs.startSha,
                     headSha: diffRefs.headSha,
                     positionType: .text,
-                    newPath: position.lineType == .new ? position.file : nil,
-                    newLine: position.lineType == .new ? position.line : nil,
-                    oldPath: position.lineType == .old ? position.file : nil,
-                    oldLine: position.lineType == .old ? position.line : nil
+                    newPath: position.newPath,
+                    newLine: position.newLine,
+                    oldPath: position.oldPath,
+                    oldLine: position.oldLine
                 )
             ))
         } else {
