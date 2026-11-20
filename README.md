@@ -1,7 +1,7 @@
 # laconic-review
 
 A small Swift CLI that reads and publishes code-review findings against a GitLab merge request,
-over [GitLabKit](../GitLabKit). The companion review skill (`skills/laconic-code-review/`)
+over [GitLabKit](../swift-gitlab). The companion review skill (`skills/laconic-code-review/`)
 produces a markdown report; this connector turns approved findings into MR discussions.
 
 ## Architecture (why it's shaped this way)
@@ -30,12 +30,12 @@ laconic-review (executable, ArgumentParser)
 
 ## Build & install
 
-Depends on the sibling `../GitLabKit` (which carries two small additions this package needs:
+Depends on the sibling `../swift-gitlab` (which carries two small additions this package needs:
 `Client(token:serverURL:)` for `http://` hosts, and `getApiV4User` in the `review` tier so
 `whoami` is generated). Build it first, then this package:
 
 ```bash
-cd ../GitLabKit && swift build         # regenerates the client
+cd ../swift-gitlab && swift build      # regenerates the client
 cd ../laconic-review && swift build
 swift test                             # offline unit tests
 ```
