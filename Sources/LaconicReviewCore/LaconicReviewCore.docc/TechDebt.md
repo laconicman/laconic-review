@@ -135,6 +135,26 @@ Added/deleted files, `too_large` diffs (possibly truncated), and empty diffs
 still demote — no trustworthy correspondence exists there. `collapsed` diffs
 still map: it's a UI fold, the diff text stays complete.
 
+### TD-10 — `publish` can't detect a stale report revision · open
+
+A report's `line=` anchors are bare numbers — no revision identity. If a
+follow-up push lands between review and `publish --confirm`, every anchor is
+resolved against the *new* diff: an in-hunk line can silently point at
+different content, and (since TD-9) an out-of-hunk line maps through offsets
+to whatever unchanged code now sits at that coordinate. GitLab accepts the
+position — the finding lands on unrelated code and the ledger keeps it.
+
+**Cost.** Rare — the review→publish window is normally minutes — but silent
+mis-anchoring is worse than a demoted general note. Predates TD-9 for
+in-hunk anchors; TD-9 widened the surface (out-of-hunk lines now succeed
+where they used to demote).
+
+**Discharge.** Record the head SHA in the report (the `review` anchor or a
+new field, stamped by `lint`/`fetch` at review time) and have `publish`
+compare it to `diff_refs.head_sha`: on mismatch, warn loudly and either
+refuse line anchors or demote them all to general notes pending a refreshed
+report.
+
 ## See Also
 
 - <doc:Design>

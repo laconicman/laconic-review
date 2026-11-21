@@ -107,7 +107,7 @@ The *form* (HTML anchors + layout) is owned by the laconic-review package, not t
 
 **Hard rules** (the parser enforces them; violating them corrupts published comments):
 - **No `##` section headers between findings, and nothing after the last one** — a finding's prose runs to the next anchor, so any such content leaks into the preceding comment. Use the front-matter for grouping.
-- **`scope=line` needs `file` + `line`** (and the file/line must fall inside the diff range, or GitLab rejects the position).
+- **`scope=line` needs `file` + `line`** — prefer a line inside the diff (added or context); `publish` also resolves unchanged lines *outside* hunks, but an anchor near the change reads better and survives stale diffs.
 - **Severity first, then id.** Rate the finding, then name it: at birth the B/C/N prefix **must match** `severity=`, and the heading emoji mirrors it (`severity=blocker` ⇒ `B<n>` ⇒ 🔴). Ids freeze only once **published** or carried from a previous iteration — while drafting, if you re-rate a finding, renumber it; never leave a newborn `B` wearing 🟡. (`lint` warns on the mismatch.) Scope never enters the id: a general-scoped concern is `C`, never `G`.
 - **Cross-links** are `links=C2` (finding ids), not Markdown anchors. `laconic-review publish` rewrites them to thread URLs.
 
@@ -123,7 +123,7 @@ Aim to emit a correct report **by construction** (follow the example). Then vali
 laconic-review lint .claude/reviews/<branch>/<N>.md   # or rely on the publish dry-run's parse
 ```
 
-`lint` adds the semantic checks beyond parsing (severity/status vocab, dangling `links=`, leaked `##`). Run it **once**; enter a fix-and-recheck loop **only if** it (or the dry-run) reports an error, or if the user explicitly asks — don't re-run it speculatively each turn. Then manually confirm the two things tooling can't: every line-anchored finding points inside the diff range, and every platform-behavior claim cites a source.
+`lint` adds the semantic checks beyond parsing (severity/status vocab, dangling `links=`, leaked `##`). Run it **once**; enter a fix-and-recheck loop **only if** it (or the dry-run) reports an error, or if the user explicitly asks — don't re-run it speculatively each turn. Then manually confirm the two things tooling can't: every line-anchored finding points at the line it means (inside the diff is safest — out-of-hunk lines resolve but can drift on a stale diff), and every platform-behavior claim cites a source.
 
 ### 8. Ensure the report directory is ignored (honor global gitignore)
 
