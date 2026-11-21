@@ -103,15 +103,24 @@ struct PublishCommand: AsyncParsableCommand {
         // Pass 2 — the ledger now holds every URL: rewrite only the notes whose cross-links can
         // resolve to more URLs than they currently show (`resolved_links` is stale). Idempotent —
         // skips already-resolved notes — so a re-run also repairs forward links left bare by an
-        // earlier single-pass publish.
+        // earlier single-pass publish. Same isolation as pass 1: one bad relink must not abort
+        // the rest, and the finding itself is already safely posted.
         var relinked = 0
+        var relinkFailed: [(id: String, reason: String)] = []
         for finding in parsed.findings where !finding.links.isEmpty {
             guard let thread = ledger.thread(for: finding.id), let noteID = thread.noteID else { continue }
             let (body, resolved) = Self.renderedBody(for: finding, ledger: ledger)
             guard Set(resolved) != Set(thread.resolvedLinks) else { continue }
-            try await connection.updateNote(
-                iid: iid, discussionID: thread.discussionID, noteID: noteID, body: body
-            )
+            do {
+                try await connection.updateNote(
+                    iid: iid, discussionID: thread.discussionID, noteID: noteID, body: body
+                )
+            } catch {
+                let reason = ErrorExplain.describe(error)
+                relinkFailed.append((finding.id, reason))
+                print("  ✗ \(finding.id) relink — \(reason)")
+                continue
+            }
             ledger.record(finding.id, PublishedThread(
                 discussionID: thread.discussionID, noteID: noteID, url: thread.url, resolvedLinks: resolved
             ))
@@ -122,18 +131,27 @@ struct PublishCommand: AsyncParsableCommand {
         print("\nPublished \(posted); relinked \(relinked); \(skipped) skipped"
             + (demoted > 0 ? "; \(demoted) anchor(s) demoted to general" : "")
             + (failed.isEmpty ? "" : "; \(failed.count) failed")
+            + (relinkFailed.isEmpty ? "" : "; \(relinkFailed.count) relink(s) failed")
             + ". Ledger: \(ledgerURL.lastPathComponent)")
-        guard failed.isEmpty else {
+        var problems: [String] = []
+        if !failed.isEmpty {
             // A transport/decoding failure can throw after GitLab already committed the
             // discussion — the thread exists but the ledger doesn't know it, so a blind
             // re-run could double-post. Say so instead of implying a clean retry.
-            throw ValidationError(
+            problems.append(
                 "\(failed.count) finding(s) failed to publish — a failure may still have "
                 + "landed server-side; check the MR, then re-run with --confirm to retry "
                 + "(posted findings are skipped): "
                 + failed.map { "\($0.id) (\($0.reason))" }.joined(separator: "; ")
             )
         }
+        if !relinkFailed.isEmpty {
+            problems.append(
+                "\(relinkFailed.count) relink(s) failed — re-run to retry: "
+                + relinkFailed.map { "\($0.id) (\($0.reason))" }.joined(separator: "; ")
+            )
+        }
+        guard problems.isEmpty else { throw ValidationError(problems.joined(separator: " ")) }
     }
 
     /// A human-readable anchor for the dry-run plan.
