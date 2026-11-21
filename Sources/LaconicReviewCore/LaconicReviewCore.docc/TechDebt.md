@@ -61,7 +61,7 @@ and cannot be exercised here until a GitHub connection exists.
 **Deferred** until there is a GitHub review to run against; the neutral core means this is
 an addition, not a rewrite.
 
-### TD-6 — `publish` aborts the batch on the first bad position · open
+### TD-6 — `publish` aborts the batch on the first bad position · discharged
 
 `PublishCommand` posts findings in a plain `for` loop with `try await` — one rejected
 position throws and every later finding is never attempted.
@@ -70,8 +70,13 @@ position throws and every later finding is never attempted.
 N1's position was rejected, N2/N3 silently never ran — a partially published review that
 only a re-run (the ledger makes it safe) repairs.
 
-**Discharge.** `do/catch` per finding: record the failure, continue, print a failure list
-and exit non-zero at the end.
+**Discharged.** Both publish passes isolate failures: pass 1 wraps `postDiscussion`,
+pass 2 wraps `updateNote` — each prints `✗ <id> — <reason>` (`ErrorExplain`), the loop
+continues, and the ledger records only successes. After the summary the command throws
+`ValidationError` listing every failure, exiting non-zero; the message warns that a
+failure throwing *after* GitLab committed can exist server-side unrecorded, so a re-run
+is not guaranteed duplicate-free — check the MR first. Ledger writes stay outside the
+`catch`: a failed save aborts rather than risking unrecorded threads.
 
 ### TD-7 — no context-line positions · discharged
 
