@@ -138,6 +138,17 @@ final class DiffMapTests: XCTestCase {
         XCTAssertEqual(map?.lines.count, 3)
     }
 
+    func testCRLFDiffKeepsCountingAndDropsThePhantomRow() {
+        // CRLF patch: every row carries "\r"; the terminator still leaves one
+        // phantom "" — and "\r\n" being a single grapheme must not matter.
+        let diff = "@@ -1,2 +1,3 @@\r\n ctx\r\n+new\r\n ctx\r\n"
+        let map = DiffParser.lineMaps(for: [FileDiff(oldPath: "f", newPath: "f", diff: diff)])["f"]
+        XCTAssertEqual(map?.lines[1], .context(oldLine: 1))
+        XCTAssertEqual(map?.lines[2], .added)
+        XCTAssertEqual(map?.lines[3], .context(oldLine: 2))
+        XCTAssertEqual(map?.lines.count, 3)   // no phantom 4th row
+    }
+
     func testHunkHeaderWithoutCountsAndNoNewlineMarker() {
         // `@@ -5 +5 @@` declares one line per side — the body must match.
         let diff = """

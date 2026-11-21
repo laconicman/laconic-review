@@ -83,10 +83,14 @@ public enum DiffParser {
         var lines: [Int: DiffLine] = [:]
         var oldLines: [Int: OldDiffLine] = [:]
         var oldLine = 0, newLine = 0, inHunk = false
-        // A trailing "\n" leaves a phantom "" after the last real line — drop it
-        // so it isn't counted as an empty context line.
-        var rows = diff.components(separatedBy: "\n")
-        if diff.hasSuffix("\n") { rows.removeLast() }
+        // Normalize CRLF: rows keep a trailing "\r" that would hide an empty
+        // context line ("\r" alone) from the bare-"" check below. Then drop the
+        // phantom "" a trailing newline leaves after the last real line —
+        // `hasSuffix("\n")` can't be used: "\r\n" is one grapheme cluster.
+        var rows = diff.components(separatedBy: "\n").map {
+            $0.hasSuffix("\r") ? String($0.dropLast()) : $0
+        }
+        if rows.count > 1, rows.last == "" { rows.removeLast() }
         for raw in rows {
             if raw.hasPrefix("@@") {
                 guard let (o, n) = hunkStart(raw) else { inHunk = false; continue }
