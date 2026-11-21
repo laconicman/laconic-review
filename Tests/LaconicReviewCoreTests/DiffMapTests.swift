@@ -150,6 +150,11 @@ final class DiffMapTests: XCTestCase {
         XCTAssertEqual(map?.lines[3], .added)                 // "+new" — numbering held
         XCTAssertEqual(map?.lines[4], .context(oldLine: 3))
         XCTAssertEqual(map?.lines.count, 4)   // no phantom 5th row
+        // Old side too — a regression there would pass the checks above.
+        XCTAssertEqual(map?.oldLines[1], .context(newLine: 1))
+        XCTAssertEqual(map?.oldLines[2], .context(newLine: 2))
+        XCTAssertEqual(map?.oldLines[3], .context(newLine: 4))
+        XCTAssertEqual(map?.oldLines.count, 3)
     }
 
     func testHunkHeaderWithoutCountsAndNoNewlineMarker() {
