@@ -89,7 +89,11 @@ public struct GitLabConnection: Sendable {
             )
             let batch = try output.ok.body.json
             all += batch.map {
-                FileDiff(oldPath: $0.oldPath ?? "", newPath: $0.newPath ?? "", diff: $0.diff ?? "")
+                FileDiff(
+                    oldPath: $0.oldPath ?? "", newPath: $0.newPath ?? "", diff: $0.diff ?? "",
+                    newFile: $0.newFile ?? false, deletedFile: $0.deletedFile ?? false,
+                    collapsed: $0.collapsed ?? false, tooLarge: $0.tooLarge ?? false
+                )
             }
             if batch.count < 100 { return all }
             page += 1
@@ -148,13 +152,26 @@ public struct GitLabConnection: Sendable {
         } else {
             payload = .json(.init(body: body))
         }
-        let discussion = try await client.postApiV4ProjectsIdMergeRequestsNoteableIdDiscussions(
+        let output = try await client.postApiV4ProjectsIdMergeRequestsNoteableIdDiscussions(
             .init(path: .init(id: project, noteableId: iid), body: payload)
-        ).created.body.json
-        return PostedDiscussion(
-            discussionID: discussion.id ?? "",
-            noteID: discussion.notes?.first?.id.map(Int.init)
         )
+        // Any non-201 is a *definite* rejection — the server responded, so
+        // nothing was committed (unlike a transport error, where the post may
+        // already have landed). Surface the status for callers that retry.
+        switch output {
+        case .created(let response):
+            let discussion = try response.body.json
+            return PostedDiscussion(
+                discussionID: discussion.id ?? "",
+                noteID: discussion.notes?.first?.id.map(Int.init)
+            )
+        case .badRequest:
+            throw DiscussionPostError.httpStatus(400)
+        case .notFound:
+            throw DiscussionPostError.httpStatus(404)
+        case .undocumented(let statusCode, _):
+            throw DiscussionPostError.httpStatus(statusCode)
+        }
     }
 
     /// `POST /projects/:id/merge_requests/:iid/discussions/:discussionId/notes` — reply in a thread.
@@ -284,5 +301,32 @@ public struct GitLabConnection: Sendable {
             return Position(file: file, line: nil, lineType: .file)
         }
         return nil
+    }
+}
+
+/// A discussion POST GitLab answered with a non-201 status. Only a 4xx is a
+/// definite rejection — the request was refused before commit. A 5xx or
+/// anything else is ambiguous: the server may have processed the post before
+/// failing, so callers must not assume nothing was saved.
+public enum DiscussionPostError: Error, Equatable, CustomStringConvertible {
+    /// The HTTP status GitLab returned (e.g. 400 for an invalid position).
+    case httpStatus(Int)
+
+    public var description: String {
+        switch self {
+        case .httpStatus(let code): return "GitLab rejected the discussion (HTTP \(code))"
+        }
+    }
+
+    /// Whether a failed discussion POST may be retried as a general note —
+    /// only a definite HTTP 400 rejection of an inferred out-of-hunk anchor.
+    /// Transport errors and every other status are ambiguous: the post may
+    /// already have committed, and a retry could double-post.
+    public static func shouldFallbackToGeneralNote(error: Error, anchor: ResolvedPosition?) -> Bool {
+        guard anchor?.outsideHunks == true,
+              let postError = error as? DiscussionPostError,
+              postError == .httpStatus(400)
+        else { return false }
+        return true
     }
 }

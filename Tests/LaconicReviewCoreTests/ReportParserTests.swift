@@ -30,6 +30,27 @@ struct ReportParserTests {
         #expect(report.header.iid == 965)
         #expect(report.header.iteration == 2)
         #expect(report.header.skill == "laconic-review@1")
+        #expect(report.header.headSha == nil)   // sample carries no head_sha
+    }
+
+    @Test("head_sha parses and matchesHead gates on it")
+    func headSha() throws {
+        let markdown = """
+        <!-- review branch=b base=develop iid=1 head_sha=9f8e7d6c5b -->
+        <!-- finding id=N1 severity=nit status=open scope=general -->
+        ### N1. Fine
+        body
+        """
+        let header = try ReportParser.parse(markdown).header
+        #expect(header.headSha == "9f8e7d6c5b")
+        #expect(header.matchesHead("9f8e7d6c5b"))
+        #expect(!header.matchesHead("0000000"))       // follow-up push — stale
+        #expect(!header.matchesHead(nil))             // server gave no head
+
+        // Absent stamp is unverifiable, never a match.
+        let unstamped = ReviewHeader(branch: "b", base: "d", iid: 1, iteration: 1, skill: "")
+        #expect(unstamped.headSha == nil)
+        #expect(!unstamped.matchesHead("9f8e7d6c5b"))
     }
 
     @Test("parses a line finding with its position and verbatim prose")

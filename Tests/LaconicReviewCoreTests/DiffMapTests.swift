@@ -55,12 +55,124 @@ final class DiffMapTests: XCTestCase {
         )
     }
 
-    func testResolveOutsideDiffReturnsNil() {
-        let position = Position(file: "a.swift", line: 99, lineType: .new)
-        XCTAssertNil(AnchorResolver.resolve(position, in: maps()))
-        // A file the MR doesn't touch at all.
+    func testResolveOutsideHunksMapsThroughOffsets() {
+        // TD-9: unchanged lines outside every hunk resolve to both-side positions.
+        // Fixture offsets: hunk1 adds +1 net (new 10-14 ↔ old 10-13), hunk2 adds
+        // another +0... net +1 overall — gaps map old = new - 1 between/after.
+        // Before hunk1 the offset is 0.
+        let before = Position(file: "a.swift", line: 5, lineType: .new)
+        XCTAssertEqual(
+            AnchorResolver.resolve(before, in: maps()),
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 5, newLine: 5, outsideHunks: true)
+        )
+        let between = Position(file: "a.swift", line: 20, lineType: .new)
+        XCTAssertEqual(
+            AnchorResolver.resolve(between, in: maps()),
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20, outsideHunks: true)
+        )
+        let after = Position(file: "a.swift", line: 99, lineType: .new)
+        XCTAssertEqual(
+            AnchorResolver.resolve(after, in: maps()),
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 98, newLine: 99, outsideHunks: true)
+        )
+        // A file the MR doesn't touch at all still can't resolve.
         let other = Position(file: "b.swift", line: 1, lineType: .new)
         XCTAssertNil(AnchorResolver.resolve(other, in: maps()))
+    }
+
+    func testResolveOldSideOutsideHunksMapsThroughOffsets() {
+        // Mirror of the new-side case: old = new + offset inverted.
+        let before = Position(file: "a.swift", line: 5, lineType: .old)
+        XCTAssertEqual(
+            AnchorResolver.resolve(before, in: maps()),
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 5, newLine: 5, outsideHunks: true)
+        )
+        let between = Position(file: "a.swift", line: 20, lineType: .old)
+        XCTAssertEqual(
+            AnchorResolver.resolve(between, in: maps()),
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 20, newLine: 21, outsideHunks: true)
+        )
+        let after = Position(file: "a.swift", line: 99, lineType: .old)
+        XCTAssertEqual(
+            AnchorResolver.resolve(after, in: maps()),
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 99, newLine: 100, outsideHunks: true)
+        )
+    }
+
+    func testOutOfHunkMappingNeedsCompleteDiffAndBothSides() {
+        // too_large diffs may be truncated — offsets would lie.
+        let partial = FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: diff, tooLarge: true)
+        let m = DiffParser.lineMaps(for: [partial])
+        XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: m))
+        // collapsed is only a UI fold — the diff text is complete, mapping holds.
+        let folded = FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: diff, collapsed: true)
+        let fm = DiffParser.lineMaps(for: [folded])
+        XCTAssertEqual(
+            AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: fm),
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20, outsideHunks: true)
+        )
+        // Added file: no old side exists to pair coordinates with.
+        let added = FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: diff, newFile: true)
+        let am = DiffParser.lineMaps(for: [added])
+        XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: am))
+        // Deleted file: no new side.
+        let deleted = FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: diff, deletedFile: true)
+        let dm = DiffParser.lineMaps(for: [deleted])
+        XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .old), in: dm))
+        // Empty diff (binary/mode-only, or collapsed-with-patch-omitted):
+        // no hunks, no correspondence.
+        let empty = DiffParser.lineMaps(for: [FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: "")])
+        XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: empty))
+        let collapsedEmpty = DiffParser.lineMaps(for: [
+            FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: "", collapsed: true)
+        ])
+        XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: collapsedEmpty))
+    }
+
+    func testLineInsideHunkRangeButUnclassifiedStillDemotes() {
+        // A truncated diff declares hunk coverage the body never fills — the
+        // missing new lines sit inside the hunk's range, so offset mapping
+        // must not pretend they're unchanged.
+        let truncated = "@@ -10,4 +10,5 @@\n ctx10\n"
+        let m = DiffParser.lineMaps(for: [FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: truncated)])
+        XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 12, lineType: .new), in: m))
+        // …but a line past the hunk still maps.
+        XCTAssertEqual(
+            AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: m),
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20, outsideHunks: true)
+        )
+    }
+
+    func testCountZeroHunkKeepsBoundaryLineInTheGap() {
+        // `@@ -3,0 +4,2 @@` (verified against git -U0): insertion after old
+        // line 3 — old line 3 is unchanged and must map with offset 0, while
+        // old line 4 maps past the hunk.
+        let ins = "@@ -3,0 +4,2 @@\n+NEWa\n+NEWb\n"
+        let m = DiffParser.lineMaps(for: [FileDiff(oldPath: "f", newPath: "f", diff: ins)])["f"]
+        // new 3 ↔ old 3 (before the insertion), new 6 ↔ old 4 (after it).
+        XCTAssertEqual(
+            AnchorResolver.resolve(Position(file: "f", line: 3, lineType: .new), in: ["f": m!]),
+            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 3, newLine: 3, outsideHunks: true)
+        )
+        XCTAssertEqual(
+            AnchorResolver.resolve(Position(file: "f", line: 6, lineType: .new), in: ["f": m!]),
+            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 4, newLine: 6, outsideHunks: true)
+        )
+    }
+
+    func testCountZeroNewSideHunkKeepsBoundaryLineInTheGap() {
+        // Mirror: `@@ -3 +2,0 @@` (git -U0 verified) deletes old line 3 — new
+        // line 2 stays in the gap, new line 3 is the following unchanged line.
+        let del = "@@ -3 +2,0 @@\n-l3\n"
+        let m = DiffParser.lineMaps(for: [FileDiff(oldPath: "f", newPath: "f", diff: del)])["f"]
+        XCTAssertEqual(
+            AnchorResolver.resolve(Position(file: "f", line: 2, lineType: .new), in: ["f": m!]),
+            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 2, newLine: 2, outsideHunks: true)
+        )
+        XCTAssertEqual(
+            AnchorResolver.resolve(Position(file: "f", line: 3, lineType: .new), in: ["f": m!]),
+            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 4, newLine: 3, outsideHunks: true)
+        )
     }
 
     func testResolveOldSideRemovedLineSendsOldSideOnly() {
@@ -79,11 +191,6 @@ final class DiffMapTests: XCTestCase {
             AnchorResolver.resolve(position, in: maps()),
             ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 40, newLine: 41)
         )
-    }
-
-    func testResolveOldSideOutsideDiffReturnsNil() {
-        let position = Position(file: "a.swift", line: 99, lineType: .old)
-        XCTAssertNil(AnchorResolver.resolve(position, in: maps()))
     }
 
     func testRenamedFileResolvesByEitherPathAndKeepsOldPath() {
@@ -155,6 +262,25 @@ final class DiffMapTests: XCTestCase {
         XCTAssertEqual(map?.oldLines[2], .context(newLine: 2))
         XCTAssertEqual(map?.oldLines[3], .context(newLine: 4))
         XCTAssertEqual(map?.oldLines.count, 3)
+    }
+
+    func testFallbackToGeneralNoteNeedsDefinite400OnInferredAnchor() {
+        // Only a definite position rejection of an *inferred* anchor may retry
+        // as a general note — anything else risks double-posting.
+        let inferred = ResolvedPosition(
+            oldPath: "a.swift", newPath: "a.swift", oldLine: 5, newLine: 5, outsideHunks: true
+        )
+        let observed = ResolvedPosition(newPath: "a.swift", newLine: 11)
+        XCTAssertTrue(DiscussionPostError.shouldFallbackToGeneralNote(
+            error: DiscussionPostError.httpStatus(400), anchor: inferred))
+        XCTAssertFalse(DiscussionPostError.shouldFallbackToGeneralNote(
+            error: DiscussionPostError.httpStatus(400), anchor: observed))   // in-diff: real bug, don't mask
+        XCTAssertFalse(DiscussionPostError.shouldFallbackToGeneralNote(
+            error: DiscussionPostError.httpStatus(400), anchor: nil))
+        XCTAssertFalse(DiscussionPostError.shouldFallbackToGeneralNote(
+            error: DiscussionPostError.httpStatus(500), anchor: inferred))  // ambiguous — may have committed
+        XCTAssertFalse(DiscussionPostError.shouldFallbackToGeneralNote(
+            error: URLError(.timedOut), anchor: inferred))                  // transport — may have committed
     }
 
     func testHunkHeaderWithoutCountsAndNoNewlineMarker() {

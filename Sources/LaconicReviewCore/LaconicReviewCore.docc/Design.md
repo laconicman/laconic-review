@@ -46,11 +46,13 @@ that one case is the expected warning.
 A closed finding still appears in the report — that is how the author sees what was fixed
 — but publishing it would post a comment about something already resolved.
 
-## SHAs are never persisted
+## Position SHAs are never persisted — but the reviewed head is
 
-`publish` fetches `diff_refs` fresh and combines them with a ``Position`` at post time. A
-stored SHA is wrong the moment the branch moves, and a line anchor built from a stale SHA
-is rejected by the platform rather than silently misplaced.
+`publish` fetches `diff_refs` fresh and combines them with a ``Position`` at post time: a
+position built from a stored SHA would be wrong the moment the branch moves. The one
+exception is `head_sha` in the review anchor — not a position input, but a *revision
+stamp*: publish compares it to the current head and refuses out-of-hunk anchor inference
+when they differ, since bare line numbers can't be trusted across a push (TD-10).
 
 ## Only one type knows GitLab
 

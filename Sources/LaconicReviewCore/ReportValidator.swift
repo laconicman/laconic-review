@@ -30,6 +30,13 @@ public enum ReportValidator {
         var diagnostics: [ReportDiagnostic] = []
         let declaredIDs = Set(report.findings.map(\.id))
 
+        // No stamped revision → publish can't verify the report still matches the
+        // MR head, so every out-of-hunk anchor will demote to a general note.
+        if report.header.headSha == nil {
+            diagnostics.append(.init(level: .warning,
+                message: "no `head_sha` in the review anchor — out-of-hunk anchors demote to general notes at publish; stamp the reviewed head SHA"))
+        }
+
         for finding in report.findings {
             let id = finding.id.isEmpty ? nil : finding.id
 

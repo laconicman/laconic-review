@@ -3,9 +3,9 @@ import Testing
 
 @Suite("ReportValidator")
 struct ReportValidatorTests {
-    private func report(_ findings: [Finding]) -> ReviewReport {
+    private func report(_ findings: [Finding], headSha: String? = "abc123") -> ReviewReport {
         ReviewReport(
-            header: ReviewHeader(branch: "b", base: "develop", iid: 1, iteration: 1, skill: ""),
+            header: ReviewHeader(branch: "b", base: "develop", iid: 1, iteration: 1, skill: "", headSha: headSha),
             findings: findings
         )
     }
@@ -56,6 +56,19 @@ struct ReportValidatorTests {
             markdown: "### 🟡 C1. Coherent\nbody"
         )
         #expect(ReportValidator.validate(report([c1])).isEmpty)
+    }
+
+    @Test("a missing head_sha warns that out-of-hunk anchors will demote")
+    func missingHeadShaWarns() {
+        let n1 = Finding(
+            id: "N1", severity: "nit", status: "open", scope: .general,
+            file: nil, lineStart: nil, lineEnd: nil, lineType: .new, links: [],
+            markdown: "### N1. Fine\nbody"
+        )
+        let diagnostics = ReportValidator.validate(report([n1], headSha: nil))
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.level == .warning)
+        #expect(diagnostics.first?.message.contains("head_sha") == true)
     }
 
     @Test("a level-3 heading is not mistaken for a leaked section")
