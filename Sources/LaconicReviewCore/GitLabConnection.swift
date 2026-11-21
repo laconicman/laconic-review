@@ -304,9 +304,10 @@ public struct GitLabConnection: Sendable {
     }
 }
 
-/// A discussion POST GitLab answered with a non-201 status — a definite
-/// rejection (the server responded; nothing was committed), unlike a transport
-/// error where the post may already have landed.
+/// A discussion POST GitLab answered with a non-201 status. Only a 4xx is a
+/// definite rejection — the request was refused before commit. A 5xx or
+/// anything else is ambiguous: the server may have processed the post before
+/// failing, so callers must not assume nothing was saved.
 public enum DiscussionPostError: Error, Equatable, CustomStringConvertible {
     /// The HTTP status GitLab returned (e.g. 400 for an invalid position).
     case httpStatus(Int)
@@ -315,5 +316,17 @@ public enum DiscussionPostError: Error, Equatable, CustomStringConvertible {
         switch self {
         case .httpStatus(let code): return "GitLab rejected the discussion (HTTP \(code))"
         }
+    }
+
+    /// Whether a failed discussion POST may be retried as a general note —
+    /// only a definite HTTP 400 rejection of an inferred out-of-hunk anchor.
+    /// Transport errors and every other status are ambiguous: the post may
+    /// already have committed, and a retry could double-post.
+    public static func shouldFallbackToGeneralNote(error: Error, anchor: ResolvedPosition?) -> Bool {
+        guard anchor?.outsideHunks == true,
+              let postError = error as? DiscussionPostError,
+              postError == .httpStatus(400)
+        else { return false }
+        return true
     }
 }

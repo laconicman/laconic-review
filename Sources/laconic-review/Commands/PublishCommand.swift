@@ -66,6 +66,16 @@ struct PublishCommand: AsyncParsableCommand {
         }
         let (mr, diffRefs) = fetched
 
+        // Out-of-hunk inference is only trustworthy when the report was written
+        // against this exact head — line numbers are bare coordinates, so a push
+        // since the review can slide an anchor onto unrelated code (TD-10). A
+        // stamped-but-mismatched head_sha also means in-hunk anchors may be stale.
+        let revisionVerified = parsed.header.matchesHead(diffRefs.headSha)
+        if let stamped = parsed.header.headSha, stamped != diffRefs.headSha {
+            print("  ⚠ report head_sha \(stamped) ≠ MR head \(diffRefs.headSha ?? "?") — "
+                + "line anchors may be stale; refresh the review before trusting them")
+        }
+
         // Pass 1 — post every pending finding, recording its thread URL. Forward cross-links (to a
         // finding posted later in this pass) render as bare ids for now; pass 2 resolves them.
         // A rejected position must not abort the batch: failures are collected and reported at
@@ -74,11 +84,20 @@ struct PublishCommand: AsyncParsableCommand {
         var demoted = 0
         var failed: [(id: String, reason: String)] = []
         for finding in pending {
-            let (body, resolved) = Self.renderedBody(for: finding, ledger: ledger)
-            let anchor = finding.position.flatMap { AnchorResolver.resolve($0, in: lineMaps) }
+            let (anchor, revisionGated) = Self.resolvedAnchor(
+                for: finding, in: lineMaps, revisionVerified: revisionVerified
+            )
+            let (body, resolved) = Self.renderedBody(
+                for: finding, ledger: ledger,
+                includeAnchor: anchor == nil || anchor?.outsideHunks == true
+            )
             if finding.position != nil && anchor == nil {
                 demoted += 1
-                print("  ⚠ \(finding.id): anchor outside the diff — posting as a general note")
+                print("  ⚠ \(finding.id): "
+                    + (revisionGated
+                        ? "out-of-hunk anchor but report revision unverified"
+                        : "anchor outside the diff")
+                    + " — posting as a general note")
             }
             let outcome: (result: PostedDiscussion, anchorRejected: Bool)
             do {
@@ -114,7 +133,13 @@ struct PublishCommand: AsyncParsableCommand {
         var relinkFailed: [(id: String, reason: String)] = []
         for finding in parsed.findings where !finding.links.isEmpty {
             guard let thread = ledger.thread(for: finding.id), let noteID = thread.noteID else { continue }
-            let (body, resolved) = Self.renderedBody(for: finding, ledger: ledger)
+            let (anchor, _) = Self.resolvedAnchor(
+                for: finding, in: lineMaps, revisionVerified: revisionVerified
+            )
+            let (body, resolved) = Self.renderedBody(
+                for: finding, ledger: ledger,
+                includeAnchor: anchor == nil || anchor?.outsideHunks == true
+            )
             guard Set(resolved) != Set(thread.resolvedLinks) else { continue }
             do {
                 try await connection.updateNote(
@@ -159,6 +184,20 @@ struct PublishCommand: AsyncParsableCommand {
         guard problems.isEmpty else { throw ValidationError(problems.joined(separator: " ")) }
     }
 
+    /// Resolve a finding's anchor against the MR diffs. An inferred out-of-hunk
+    /// position is returned only when the report's stamped `head_sha` matches the
+    /// MR's current head — otherwise the line numbers can't be trusted to mean
+    /// the same code, and the caller demotes to a general note (TD-10). The
+    /// second tuple element reports that suppression so the caller can say why.
+    private static func resolvedAnchor(
+        for finding: Finding, in lineMaps: [String: FileLineMap], revisionVerified: Bool
+    ) -> (anchor: ResolvedPosition?, revisionGated: Bool) {
+        guard let raw = finding.position.flatMap({ AnchorResolver.resolve($0, in: lineMaps) })
+        else { return (nil, false) }
+        guard raw.outsideHunks, !revisionVerified else { return (raw, false) }
+        return (nil, true)
+    }
+
     /// Post one finding. An inferred out-of-hunk anchor can still be rejected —
     /// GitLab unfolds blob lines under size caps — so on a *definite* 400 (the
     /// server answered; nothing was posted) retry once as a general note rather
@@ -173,8 +212,7 @@ struct PublishCommand: AsyncParsableCommand {
                 iid: iid, body: body, position: anchor, diffRefs: diffRefs
             ), false)
         } catch {
-            guard anchor?.outsideHunks == true,
-                  case DiscussionPostError.httpStatus(400) = error
+            guard DiscussionPostError.shouldFallbackToGeneralNote(error: error, anchor: anchor)
             else { throw error }
             return (try await connection.postDiscussion(
                 iid: iid, body: body, position: nil, diffRefs: diffRefs
@@ -189,17 +227,41 @@ struct PublishCommand: AsyncParsableCommand {
         return "\(f.file ?? "?"):\(lines) [\(f.lineType.rawValue)]"
     }
 
-    /// Posted body = the finding's verbatim markdown plus a language-neutral footer cross-linking
-    /// related findings. Returns the body and the link ids that resolved to a thread URL (the rest
-    /// stay bare ids until their thread exists — the publish second pass fills them in).
-    private static func renderedBody(for finding: Finding, ledger: PublishLedger) -> (body: String, resolved: [String]) {
-        guard !finding.links.isEmpty else { return (finding.markdown, []) }
+    /// The report's intended location as note text (`file:lines [side]`, or just
+    /// `file`) — appended to notes that post without a diff anchor, so a demoted
+    /// or fallback general note still tells readers where the finding points.
+    private static func anchorLabel(for finding: Finding) -> String? {
+        guard let file = finding.file else { return nil }
+        guard finding.scope == .line, finding.lineType != .file,
+              (finding.lineEnd ?? finding.lineStart) != nil
+        else { return "`\(file)`" }
+        let lines = [finding.lineStart, finding.lineEnd].compactMap { $0 }
+            .map(String.init).joined(separator: "-")
+        return "`\(file):\(lines)` (\(finding.lineType.rawValue))"
+    }
+
+    /// Posted body = the finding's verbatim markdown plus a footer: the intended
+    /// location when the note carries no diff anchor (`includeAnchor`), and
+    /// cross-links to related findings. Returns the body and the link ids that
+    /// resolved to a thread URL (the rest stay bare ids until their thread
+    /// exists — the publish second pass fills them in).
+    private static func renderedBody(
+        for finding: Finding, ledger: PublishLedger, includeAnchor: Bool
+    ) -> (body: String, resolved: [String]) {
         var resolved: [String] = []
-        let parts = finding.links.map { id -> String in
-            guard let url = ledger.url(for: id) else { return id }
-            resolved.append(id)
-            return "[\(id)](\(url))"
+        var footer: [String] = []
+        if includeAnchor, let label = anchorLabel(for: finding) {
+            footer.append("📍 \(label)")
         }
-        return (finding.markdown + "\n\n🔗 " + parts.joined(separator: " · "), resolved)
+        if !finding.links.isEmpty {
+            let parts = finding.links.map { id -> String in
+                guard let url = ledger.url(for: id) else { return id }
+                resolved.append(id)
+                return "[\(id)](\(url))"
+            }
+            footer.append("🔗 " + parts.joined(separator: " · "))
+        }
+        guard !footer.isEmpty else { return (finding.markdown, []) }
+        return (finding.markdown + "\n\n" + footer.joined(separator: "\n"), resolved)
     }
 }
