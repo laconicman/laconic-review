@@ -103,6 +103,19 @@ recorded in partner-ios's CLAUDE.md; nothing warns at lint time.
 **Discharge.** On `badRequest`, retry once with `lineStart` (or nudge the end line up
 to the last non-brace line); or pre-validate resolved positions against the MR diff.
 
+### TD-9 — out-of-hunk anchors demote even where GitLab might accept them · open
+
+`AnchorResolver` only knows lines inside diff hunks. GitLab 19.5 can anchor
+unchanged lines *outside* the shown hunks when the position carries both
+coordinates (Devin Review, PR #4) — but producing those coordinates needs the
+whole-file old↔new line correspondence, which `…/diffs` doesn't provide.
+
+**Cost.** A reviewer anchoring far from any change gets a general note instead
+of a line note. Rare — the rubric already says anchor inside the diff.
+
+**Discharge.** Fetch file contents at `base_sha`/`head_sha` and map lines
+locally, or accept GitLab's `unidiff`/versions endpoints if they expose more.
+
 ## See Also
 
 - <doc:Design>
