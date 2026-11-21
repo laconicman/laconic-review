@@ -80,10 +80,10 @@ struct PublishCommand: AsyncParsableCommand {
                 demoted += 1
                 print("  ⚠ \(finding.id): anchor outside the diff — posting as a general note")
             }
-            let result: PostedDiscussion
+            let outcome: (result: PostedDiscussion, anchorRejected: Bool)
             do {
-                result = try await connection.postDiscussion(
-                    iid: iid, body: body, position: anchor, diffRefs: diffRefs
+                outcome = try await Self.postFinding(
+                    iid: iid, body: body, anchor: anchor, diffRefs: diffRefs, connection: connection
                 )
             } catch {
                 let reason = ErrorExplain.describe(error)
@@ -91,6 +91,11 @@ struct PublishCommand: AsyncParsableCommand {
                 print("  ✗ \(finding.id) — \(reason)")
                 continue
             }
+            if outcome.anchorRejected {
+                demoted += 1
+                print("  ⚠ \(finding.id): inferred anchor rejected — posted as a general note")
+            }
+            let result = outcome.result
             let url = result.noteID.flatMap { id in mr.webURL.map { "\($0)#note_\(id)" } }
             ledger.record(finding.id, PublishedThread(
                 discussionID: result.discussionID, noteID: result.noteID, url: url, resolvedLinks: resolved
@@ -152,6 +157,29 @@ struct PublishCommand: AsyncParsableCommand {
             )
         }
         guard problems.isEmpty else { throw ValidationError(problems.joined(separator: " ")) }
+    }
+
+    /// Post one finding. An inferred out-of-hunk anchor can still be rejected —
+    /// GitLab unfolds blob lines under size caps — so on a *definite* 400 (the
+    /// server answered; nothing was posted) retry once as a general note rather
+    /// than lose the finding. Transport errors are never retried: the post may
+    /// already have landed, and a retry could double-post.
+    private static func postFinding(
+        iid: Int, body: String, anchor: ResolvedPosition?,
+        diffRefs: DiffRefs, connection: GitLabConnection
+    ) async throws -> (result: PostedDiscussion, anchorRejected: Bool) {
+        do {
+            return (try await connection.postDiscussion(
+                iid: iid, body: body, position: anchor, diffRefs: diffRefs
+            ), false)
+        } catch {
+            guard anchor?.outsideHunks == true,
+                  case DiscussionPostError.httpStatus(400) = error
+            else { throw error }
+            return (try await connection.postDiscussion(
+                iid: iid, body: body, position: nil, diffRefs: diffRefs
+            ), true)
+        }
     }
 
     /// A human-readable anchor for the dry-run plan.

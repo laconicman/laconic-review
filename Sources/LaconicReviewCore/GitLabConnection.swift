@@ -152,13 +152,26 @@ public struct GitLabConnection: Sendable {
         } else {
             payload = .json(.init(body: body))
         }
-        let discussion = try await client.postApiV4ProjectsIdMergeRequestsNoteableIdDiscussions(
+        let output = try await client.postApiV4ProjectsIdMergeRequestsNoteableIdDiscussions(
             .init(path: .init(id: project, noteableId: iid), body: payload)
-        ).created.body.json
-        return PostedDiscussion(
-            discussionID: discussion.id ?? "",
-            noteID: discussion.notes?.first?.id.map(Int.init)
         )
+        // Any non-201 is a *definite* rejection — the server responded, so
+        // nothing was committed (unlike a transport error, where the post may
+        // already have landed). Surface the status for callers that retry.
+        switch output {
+        case .created(let response):
+            let discussion = try response.body.json
+            return PostedDiscussion(
+                discussionID: discussion.id ?? "",
+                noteID: discussion.notes?.first?.id.map(Int.init)
+            )
+        case .badRequest:
+            throw DiscussionPostError.httpStatus(400)
+        case .notFound:
+            throw DiscussionPostError.httpStatus(404)
+        case .undocumented(let statusCode, _):
+            throw DiscussionPostError.httpStatus(statusCode)
+        }
     }
 
     /// `POST /projects/:id/merge_requests/:iid/discussions/:discussionId/notes` — reply in a thread.
@@ -288,5 +301,19 @@ public struct GitLabConnection: Sendable {
             return Position(file: file, line: nil, lineType: .file)
         }
         return nil
+    }
+}
+
+/// A discussion POST GitLab answered with a non-201 status — a definite
+/// rejection (the server responded; nothing was committed), unlike a transport
+/// error where the post may already have landed.
+public enum DiscussionPostError: Error, Equatable, CustomStringConvertible {
+    /// The HTTP status GitLab returned (e.g. 400 for an invalid position).
+    case httpStatus(Int)
+
+    public var description: String {
+        switch self {
+        case .httpStatus(let code): return "GitLab rejected the discussion (HTTP \(code))"
+        }
     }
 }

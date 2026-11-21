@@ -63,17 +63,17 @@ final class DiffMapTests: XCTestCase {
         let before = Position(file: "a.swift", line: 5, lineType: .new)
         XCTAssertEqual(
             AnchorResolver.resolve(before, in: maps()),
-            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 5, newLine: 5)
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 5, newLine: 5, outsideHunks: true)
         )
         let between = Position(file: "a.swift", line: 20, lineType: .new)
         XCTAssertEqual(
             AnchorResolver.resolve(between, in: maps()),
-            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20)
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20, outsideHunks: true)
         )
         let after = Position(file: "a.swift", line: 99, lineType: .new)
         XCTAssertEqual(
             AnchorResolver.resolve(after, in: maps()),
-            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 98, newLine: 99)
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 98, newLine: 99, outsideHunks: true)
         )
         // A file the MR doesn't touch at all still can't resolve.
         let other = Position(file: "b.swift", line: 1, lineType: .new)
@@ -85,17 +85,17 @@ final class DiffMapTests: XCTestCase {
         let before = Position(file: "a.swift", line: 5, lineType: .old)
         XCTAssertEqual(
             AnchorResolver.resolve(before, in: maps()),
-            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 5, newLine: 5)
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 5, newLine: 5, outsideHunks: true)
         )
         let between = Position(file: "a.swift", line: 20, lineType: .old)
         XCTAssertEqual(
             AnchorResolver.resolve(between, in: maps()),
-            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 20, newLine: 21)
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 20, newLine: 21, outsideHunks: true)
         )
         let after = Position(file: "a.swift", line: 99, lineType: .old)
         XCTAssertEqual(
             AnchorResolver.resolve(after, in: maps()),
-            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 99, newLine: 100)
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 99, newLine: 100, outsideHunks: true)
         )
     }
 
@@ -109,7 +109,7 @@ final class DiffMapTests: XCTestCase {
         let fm = DiffParser.lineMaps(for: [folded])
         XCTAssertEqual(
             AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: fm),
-            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20)
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20, outsideHunks: true)
         )
         // Added file: no old side exists to pair coordinates with.
         let added = FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: diff, newFile: true)
@@ -119,9 +119,14 @@ final class DiffMapTests: XCTestCase {
         let deleted = FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: diff, deletedFile: true)
         let dm = DiffParser.lineMaps(for: [deleted])
         XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .old), in: dm))
-        // Empty diff (binary/mode-only): no hunks, no correspondence.
+        // Empty diff (binary/mode-only, or collapsed-with-patch-omitted):
+        // no hunks, no correspondence.
         let empty = DiffParser.lineMaps(for: [FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: "")])
         XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: empty))
+        let collapsedEmpty = DiffParser.lineMaps(for: [
+            FileDiff(oldPath: "a.swift", newPath: "a.swift", diff: "", collapsed: true)
+        ])
+        XCTAssertNil(AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: collapsedEmpty))
     }
 
     func testLineInsideHunkRangeButUnclassifiedStillDemotes() {
@@ -134,7 +139,7 @@ final class DiffMapTests: XCTestCase {
         // …but a line past the hunk still maps.
         XCTAssertEqual(
             AnchorResolver.resolve(Position(file: "a.swift", line: 20, lineType: .new), in: m),
-            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20)
+            ResolvedPosition(oldPath: "a.swift", newPath: "a.swift", oldLine: 19, newLine: 20, outsideHunks: true)
         )
     }
 
@@ -147,11 +152,11 @@ final class DiffMapTests: XCTestCase {
         // new 3 ↔ old 3 (before the insertion), new 6 ↔ old 4 (after it).
         XCTAssertEqual(
             AnchorResolver.resolve(Position(file: "f", line: 3, lineType: .new), in: ["f": m!]),
-            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 3, newLine: 3)
+            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 3, newLine: 3, outsideHunks: true)
         )
         XCTAssertEqual(
             AnchorResolver.resolve(Position(file: "f", line: 6, lineType: .new), in: ["f": m!]),
-            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 4, newLine: 6)
+            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 4, newLine: 6, outsideHunks: true)
         )
     }
 
@@ -162,11 +167,11 @@ final class DiffMapTests: XCTestCase {
         let m = DiffParser.lineMaps(for: [FileDiff(oldPath: "f", newPath: "f", diff: del)])["f"]
         XCTAssertEqual(
             AnchorResolver.resolve(Position(file: "f", line: 2, lineType: .new), in: ["f": m!]),
-            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 2, newLine: 2)
+            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 2, newLine: 2, outsideHunks: true)
         )
         XCTAssertEqual(
             AnchorResolver.resolve(Position(file: "f", line: 3, lineType: .new), in: ["f": m!]),
-            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 4, newLine: 3)
+            ResolvedPosition(oldPath: "f", newPath: "f", oldLine: 4, newLine: 3, outsideHunks: true)
         )
     }
 

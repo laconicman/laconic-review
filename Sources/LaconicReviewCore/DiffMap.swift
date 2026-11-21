@@ -126,12 +126,21 @@ public struct ResolvedPosition: Equatable, Sendable {
     public var newPath: String?
     public var oldLine: Int?
     public var newLine: Int?
+    /// True when the position was inferred for an unchanged line outside every
+    /// hunk — computed, not observed in the diff. GitLab can still reject these
+    /// (its blob-unfold path has size caps), so a caller may retry as a general
+    /// note on a definite position rejection.
+    public var outsideHunks: Bool
 
-    public init(oldPath: String? = nil, newPath: String? = nil, oldLine: Int? = nil, newLine: Int? = nil) {
+    public init(
+        oldPath: String? = nil, newPath: String? = nil,
+        oldLine: Int? = nil, newLine: Int? = nil, outsideHunks: Bool = false
+    ) {
         self.oldPath = oldPath
         self.newPath = newPath
         self.oldLine = oldLine
         self.newLine = newLine
+        self.outsideHunks = outsideHunks
     }
 }
 
@@ -251,7 +260,8 @@ public enum AnchorResolver {
             guard let kind = map.lines[line] else {
                 guard let oldLine = map.oldLine(forNewLine: line) else { return nil }
                 return ResolvedPosition(
-                    oldPath: map.oldPath, newPath: map.newPath, oldLine: oldLine, newLine: line
+                    oldPath: map.oldPath, newPath: map.newPath,
+                    oldLine: oldLine, newLine: line, outsideHunks: true
                 )
             }
             switch kind {
@@ -266,7 +276,8 @@ public enum AnchorResolver {
             guard let kind = map.oldLines[line] else {
                 guard let newLine = map.newLine(forOldLine: line) else { return nil }
                 return ResolvedPosition(
-                    oldPath: map.oldPath, newPath: map.newPath, oldLine: line, newLine: newLine
+                    oldPath: map.oldPath, newPath: map.newPath,
+                    oldLine: line, newLine: newLine, outsideHunks: true
                 )
             }
             switch kind {
