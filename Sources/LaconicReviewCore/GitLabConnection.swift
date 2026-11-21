@@ -89,7 +89,11 @@ public struct GitLabConnection: Sendable {
             )
             let batch = try output.ok.body.json
             all += batch.map {
-                FileDiff(oldPath: $0.oldPath ?? "", newPath: $0.newPath ?? "", diff: $0.diff ?? "")
+                FileDiff(
+                    oldPath: $0.oldPath ?? "", newPath: $0.newPath ?? "", diff: $0.diff ?? "",
+                    newFile: $0.newFile ?? false, deletedFile: $0.deletedFile ?? false,
+                    collapsed: $0.collapsed ?? false, tooLarge: $0.tooLarge ?? false
+                )
             }
             if batch.count < 100 { return all }
             page += 1

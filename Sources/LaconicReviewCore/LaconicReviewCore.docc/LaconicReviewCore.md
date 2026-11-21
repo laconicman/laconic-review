@@ -70,6 +70,7 @@ the result in the ``PublishLedger`` so re-runs are safe.
 - ``ResolvedPosition``
 - ``FileDiff``
 - ``FileLineMap``
+- ``DiffHunk``
 - ``DiffLine``
 - ``OldDiffLine``
 - ``PostedDiscussion``
