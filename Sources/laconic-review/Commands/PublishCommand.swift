@@ -42,10 +42,19 @@ struct PublishCommand: AsyncParsableCommand {
 
         // Confirmed: diff_refs is the server's truth for `position`, fetched fresh now —
         // and the MR diffs that tell added lines from context lines (which need both
-        // `old_*` and `new_*` coordinates, or GitLab answers `badRequest`).
+        // `old_*` and `new_*` coordinates, or GitLab answers `badRequest`). The two
+        // reads must describe the same revision: re-check the head SHA after the diff
+        // fetch and refetch once if a push landed in between.
         let connection = try options.makeConnection()
-        let (mr, diffRefs) = try await connection.mergeRequest(iid: iid)
-        let lineMaps = DiffParser.lineMaps(for: try await connection.mergeRequestDiffs(iid: iid))
+        var fetched = try await connection.mergeRequest(iid: iid)
+        var lineMaps = DiffParser.lineMaps(for: try await connection.mergeRequestDiffs(iid: iid))
+        for _ in 0..<2 {
+            let check = try await connection.mergeRequest(iid: iid)
+            guard check.diffRefs.headSha != fetched.diffRefs.headSha else { break }
+            fetched = check
+            lineMaps = DiffParser.lineMaps(for: try await connection.mergeRequestDiffs(iid: iid))
+        }
+        let (mr, diffRefs) = fetched
 
         // Pass 1 — post every pending finding, recording its thread URL. Forward cross-links (to a
         // finding posted later in this pass) render as bare ids for now; pass 2 resolves them.
