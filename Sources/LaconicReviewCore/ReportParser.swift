@@ -66,7 +66,8 @@ public enum ReportParser {
             base: try required("base"),
             iid: Int(try required("iid")) ?? 0,
             iteration: a["iteration"].flatMap(Int.init) ?? 1,
-            skill: a["skill"] ?? ""
+            skill: a["skill"] ?? "",
+            headSha: a["head_sha"]
         )
     }
 

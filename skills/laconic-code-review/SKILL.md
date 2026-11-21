@@ -101,13 +101,13 @@ Read `references/rubric.md` for the *content* rules: severity scale (🔴/🟡/�
 
 The *form* (HTML anchors + layout) is owned by the laconic-review package, not this skill. **Emit by the golden example** `references/example-report.md`; the authoritative field set is the package's `Docs/report-format.md` and the `LaconicReviewCore` DocC. Don't restate the anchor schema in your prose — it drifts. In brief, a report is:
 
-1. **One `<!-- review branch=… base=… iid=… iteration=<N> skill=laconic-code-review@1 -->` anchor.** All values are space-free.
+1. **One `<!-- review branch=… base=… iid=… iteration=<N> skill=laconic-code-review@1 head_sha=<MR head SHA> -->` anchor.** All values are space-free. `head_sha` is the head commit you reviewed (from the MR metadata you fetched) — `publish` uses it to verify the report still matches the MR before trusting out-of-hunk anchors.
 2. **Human front-matter** — title, a one-paragraph TL;DR, the summary table, the merge recommendation. Everything before the first finding is for humans; the parser ignores it. **Group and summarize here.**
 3. **Findings, back-to-back** — each a `<!-- finding id=… severity=… status=… scope=… [file=… line=… line_type=…] [links=…] -->` anchor immediately followed by its prose (the `### 🟡 C1. … — ⏳ Open` heading mirror, body, inline sources, code fences). Prose is published **verbatim**, so each block must read standalone.
 
 **Hard rules** (the parser enforces them; violating them corrupts published comments):
 - **No `##` section headers between findings, and nothing after the last one** — a finding's prose runs to the next anchor, so any such content leaks into the preceding comment. Use the front-matter for grouping.
-- **`scope=line` needs `file` + `line`** — prefer a line inside the diff (added or context); `publish` also resolves unchanged lines *outside* hunks, but an anchor near the change reads better and survives stale diffs.
+- **`scope=line` needs `file` + `line`** — prefer a line inside the diff (added or context); `publish` also resolves unchanged lines *outside* hunks, but only when the report's `head_sha` matches the MR head — a follow-up push can shift any anchor, so re-review after pushes rather than trusting a stale report.
 - **Severity first, then id.** Rate the finding, then name it: at birth the B/C/N prefix **must match** `severity=`, and the heading emoji mirrors it (`severity=blocker` ⇒ `B<n>` ⇒ 🔴). Ids freeze only once **published** or carried from a previous iteration — while drafting, if you re-rate a finding, renumber it; never leave a newborn `B` wearing 🟡. (`lint` warns on the mismatch.) Scope never enters the id: a general-scoped concern is `C`, never `G`.
 - **Cross-links** are `links=C2` (finding ids), not Markdown anchors. `laconic-review publish` rewrites them to thread URLs.
 

@@ -94,15 +94,17 @@ Prose is freely editable; machine fields ride in one HTML comment per finding th
 (human or tool) may alter:
 
 ```markdown
-<!-- review branch=… base=develop iid=965 iteration=1 skill=laconic-review@1 -->
+<!-- review branch=… base=develop iid=965 iteration=1 skill=laconic-review@1 head_sha=… -->
 <!-- finding id=C1 severity=concern status=open scope=line file=path/to/File.swift line=18-22 line_type=new links=C3 -->
 ### 🟡 C1. Title — ⏳ Open
 …freely-editable prose, code, suggested fix…
 ```
 
 The comment is the machine source of truth (the heading emoji is a human mirror); `id` is
-stable across iterations for lineage. SHAs are intentionally absent — `publish` fetches
-`diff_refs` from the MR.
+stable across iterations for lineage. Position SHAs are intentionally absent — `publish`
+fetches `diff_refs` from the MR. `head_sha` is the one stored SHA: the head commit the
+review was written against, which publish compares to the current head before trusting
+anchors outside the diff hunks.
 
 ## Companion skill
 

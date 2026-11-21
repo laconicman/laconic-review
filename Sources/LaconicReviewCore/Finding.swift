@@ -3,8 +3,10 @@ import Foundation
 /// A code-review report parsed from the markdown SSOT: the review header plus its findings.
 ///
 /// The markdown is the human-editable source of truth; machine fields live in one HTML
-/// comment per finding (and one for the report). SHAs are deliberately absent — `publish`
-/// fetches `diff_refs` fresh from the server. See ``ReportParser``.
+/// comment per finding (and one for the report). Position SHAs are deliberately absent —
+/// `publish` fetches `diff_refs` fresh from the server — but the review anchor may stamp
+/// `head_sha`, the revision the review was written against, so publish can tell a fresh
+/// report from a stale one. See ``ReportParser``.
 public struct ReviewReport: Equatable, Sendable {
     public let header: ReviewHeader
     public let findings: [Finding]
@@ -22,13 +24,26 @@ public struct ReviewHeader: Equatable, Sendable {
     public let iid: Int
     public let iteration: Int
     public let skill: String
+    /// The MR head SHA the review was written against (`head_sha=` in the anchor).
+    /// `publish` gates out-of-hunk anchor inference on it matching the current head —
+    /// absent or mismatched means the diff may have moved since the review (TD-10).
+    public let headSha: String?
 
-    public init(branch: String, base: String, iid: Int, iteration: Int, skill: String) {
+    public init(branch: String, base: String, iid: Int, iteration: Int, skill: String, headSha: String? = nil) {
         self.branch = branch
         self.base = base
         self.iid = iid
         self.iteration = iteration
         self.skill = skill
+        self.headSha = headSha
+    }
+
+    /// Whether the report's stamped revision is the MR's current head. Absent
+    /// `head_sha` counts as unverifiable — line numbers are bare coordinates,
+    /// so only a matching stamp makes out-of-hunk inference trustworthy.
+    public func matchesHead(_ headSha: String?) -> Bool {
+        guard let stamped = self.headSha else { return false }
+        return stamped == headSha
     }
 }
 

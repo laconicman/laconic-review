@@ -1,4 +1,4 @@
-<!-- review branch=fix/logout-sometimes/FPM-1653 base=develop iid=965 iteration=1 skill=laconic-review@1 -->
+<!-- review branch=fix/logout-sometimes/FPM-1653 base=develop iid=965 iteration=1 skill=laconic-review@1 head_sha=… -->
 # Code review — `fix/logout-sometimes/FPM-1653` — итерация 1
 
 > Образец отчёта laconic-review. Машинные поля — в `<!-- finding … -->`; проза свободно

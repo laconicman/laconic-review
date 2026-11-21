@@ -45,8 +45,9 @@ connection type, not a rewrite.
 ### The report (markdown SSOT)
 
 The human-editable markdown is the source of truth; machine fields ride in `<!-- review … -->`
-and `<!-- finding … -->` HTML comments. SHAs are never persisted — `publish` fetches `diff_refs`
-fresh and the seam combines them with a ``Position`` to build GitLab's line anchor.
+and `<!-- finding … -->` HTML comments. Position SHAs are never persisted — `publish` fetches
+`diff_refs` fresh — but the review anchor may stamp `head_sha`, the revision reviewed, which
+publish compares against the current head before trusting out-of-hunk anchors.
 
 - ``ReportParser``
 - ``ReviewReport``
