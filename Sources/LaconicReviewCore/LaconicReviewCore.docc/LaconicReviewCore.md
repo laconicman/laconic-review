@@ -59,10 +59,19 @@ fresh and the seam combines them with a ``Position`` to build GitLab's line anch
 ### Publishing (idempotent)
 
 `publish` posts each open, not-yet-published finding as a discussion (line-anchored via
-``Position``, or general), recording the result in the ``PublishLedger`` so re-runs are safe.
+``Position`` resolved against the MR diff by ``AnchorResolver``, or general), recording
+the result in the ``PublishLedger`` so re-runs are safe.
 
 - ``GitLabConnection/postDiscussion(iid:body:position:diffRefs:)``
+- ``GitLabConnection/mergeRequestDiffs(iid:)``
 - ``GitLabConnection/resolveThread(iid:discussionID:resolved:)``
+- ``DiffParser``
+- ``AnchorResolver``
+- ``ResolvedPosition``
+- ``FileDiff``
+- ``FileLineMap``
+- ``DiffLine``
+- ``OldDiffLine``
 - ``PostedDiscussion``
 - ``PublishLedger``
 - ``PublishedThread``

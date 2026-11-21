@@ -22,7 +22,7 @@ let package = Package(
     ],
     dependencies: [
         // Local path dep during bring-up; swap to a Git URL once GitLabKit is published.
-        .package(path: "../GitLabKit"),
+        .package(path: "../swift-gitlab"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
     ],
     targets: [
@@ -37,8 +37,8 @@ let package = Package(
             name: "LaconicReviewCore",
             dependencies: [
                 // Façade (adds `Client` conveniences) + the generated client/types.
-                .product(name: "GitLabKit", package: "GitLabKit"),
-                .product(name: "GitLabOpenAPI", package: "GitLabKit"),
+                .product(name: "GitLabKit", package: "swift-gitlab"),
+                .product(name: "GitLabOpenAPI", package: "swift-gitlab"),
             ]
         ),
         .testTarget(
