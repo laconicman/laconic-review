@@ -95,7 +95,7 @@ them into per-file new-side line maps (`DiffParser`), and resolves each anchor
 warning instead of a `badRequest`. Verified live on GitLab 19.5.3 (MR !1336,
 2026-11-20): the both-sides position on a context line returns `201`.
 
-### TD-8 — positions resolving to brace-only lines are rejected · open
+### TD-8 — positions resolving to brace-only lines are rejected · discharged
 
 `Finding.position` uses `lineEnd ?? lineStart` — the *end* of a `line=A-B` range. On
 git.flat.lab (GitLab 19.5.3, MR !1336, 2026-11-20) a range ending on a bare `}` line
@@ -105,10 +105,15 @@ line code"]}` while neighbouring added lines (`38`, `43`) posted fine.
 **Cost.** Author must end ranges on the last meaningful line, not the closing brace —
 recorded in partner-ios's CLAUDE.md; nothing warns at lint time.
 
-**Discharge.** On `badRequest`, retry once with `lineStart` (or nudge the end line up
-to the last non-brace line); or pre-validate resolved positions against the MR diff.
+**Discharged — misdiagnosis.** Probing MR !1336 on 2026-11-21 showed the rejection was
+never about braces: added `}`/`    }`/`)` lines and context `}` lines all post `201`
+when the coordinates are right. The `line_code can't be blank` error fires when the
+position's coordinates don't identify a diff line — the original failure was a
+*context* line sent `new_line`-only by the pre-TD-7 code, and a wrong `old_line` pair
+reproduces the identical error today. TD-7's both-sides resolution already fixed the
+real cause; no brace handling was ever needed.
 
-### TD-9 — out-of-hunk anchors demote even where GitLab might accept them · open
+### TD-9 — out-of-hunk anchors demote even where GitLab might accept them · discharged
 
 `AnchorResolver` only knows lines inside diff hunks. GitLab 19.5 can anchor
 unchanged lines *outside* the shown hunks when the position carries both
@@ -118,8 +123,17 @@ whole-file old↔new line correspondence, which `…/diffs` doesn't provide.
 **Cost.** A reviewer anchoring far from any change gets a general note instead
 of a line note. Rare — the rubric already says anchor inside the diff.
 
-**Discharge.** Fetch file contents at `base_sha`/`head_sha` and map lines
-locally, or accept GitLab's `unidiff`/versions endpoints if they expose more.
+**Discharged.** No file fetches needed: hunk headers already encode the
+correspondence — every line outside hunks is unchanged, and unchanged regions
+between/around hunks share a constant offset. `DiffParser` now records each
+hunk's covered ranges (`DiffHunk`, count-0 aware) plus the file's
+`new_file`/`deleted_file`/`collapsed`/`too_large` flags; `FileLineMap` maps an
+out-of-hunk line to its other side and `AnchorResolver` emits the both-sides
+position. Verified live on GitLab 19.5.3 (MR !1336, 2026-11-21): positions before
+the first hunk (`100↔100`) and after it (`160↔157`, offset +3) both return `201`.
+Added/deleted files, `too_large` diffs (possibly truncated), and empty diffs
+still demote — no trustworthy correspondence exists there. `collapsed` diffs
+still map: it's a UI fold, the diff text stays complete.
 
 ## See Also
 
