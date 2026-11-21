@@ -83,7 +83,11 @@ public enum DiffParser {
         var lines: [Int: DiffLine] = [:]
         var oldLines: [Int: OldDiffLine] = [:]
         var oldLine = 0, newLine = 0, inHunk = false
-        for raw in diff.components(separatedBy: "\n") {
+        // A trailing "\n" leaves a phantom "" after the last real line — drop it
+        // so it isn't counted as an empty context line.
+        var rows = diff.components(separatedBy: "\n")
+        if diff.hasSuffix("\n") { rows.removeLast() }
+        for raw in rows {
             if raw.hasPrefix("@@") {
                 guard let (o, n) = hunkStart(raw) else { inHunk = false; continue }
                 oldLine = o; newLine = n; inHunk = true
@@ -91,22 +95,22 @@ public enum DiffParser {
             }
             guard inHunk else { continue }
             // Git may emit a bare "" for an empty context line (no leading space);
-            // it still consumes one line on each side.
-            if raw.isEmpty { oldLine += 1; newLine += 1; continue }
-            switch raw.first {
-            case "+":
-                // Content-empty lines can't anchor (GitLab's line_code comes out blank)
-                // — consume the number but leave them unmapped so they demote cleanly.
-                if raw.count > 1 { lines[newLine] = .added }
-                newLine += 1
-            case "-":
-                if raw.count > 1 { oldLines[oldLine] = .removed }
-                oldLine += 1
-            case " ":
-                if raw.count > 1 {
-                    lines[newLine] = .context(oldLine: oldLine)
-                    oldLines[oldLine] = .context(newLine: newLine)
-                }
+            // it still consumes one line on each side. GitLab anchors by line
+            // coordinates, not content — blank lines are publishable.
+            if raw.isEmpty {
+                lines[newLine] = .context(oldLine: oldLine)
+                oldLines[oldLine] = .context(newLine: newLine)
+                oldLine += 1; newLine += 1
+                continue
+            }
+            // utf8, not Character: a leading combining mark would fuse with the
+            // prefix into one grapheme and hide it from `raw.first`.
+            switch raw.utf8.first {
+            case UInt8(ascii: "+"): lines[newLine] = .added; newLine += 1
+            case UInt8(ascii: "-"): oldLines[oldLine] = .removed; oldLine += 1
+            case UInt8(ascii: " "):
+                lines[newLine] = .context(oldLine: oldLine)
+                oldLines[oldLine] = .context(newLine: newLine)
                 newLine += 1; oldLine += 1
             default: break   // "\ No newline…", malformed — consume nothing
             }
