@@ -21,6 +21,16 @@ struct PublishCommand: AsyncParsableCommand {
     @OptionGroup var options: ConnectionOptions
 
     func run() async throws {
+        do {
+            try await runInner()
+        } catch let e as ValidationError {
+            throw e
+        } catch {
+            throw ValidationError(ErrorExplain.describe(error))
+        }
+    }
+
+    private func runInner() async throws {
         let reportURL = URL(fileURLWithPath: report)
         let parsed = try ReportParser.parse(try String(contentsOf: reportURL, encoding: .utf8))
         let iid = parsed.header.iid
@@ -58,8 +68,11 @@ struct PublishCommand: AsyncParsableCommand {
 
         // Pass 1 — post every pending finding, recording its thread URL. Forward cross-links (to a
         // finding posted later in this pass) render as bare ids for now; pass 2 resolves them.
+        // A rejected position must not abort the batch: failures are collected and reported at
+        // the end, and the ledger keeps only successes so a re-run retries just those.
         var posted = 0
         var demoted = 0
+        var failed: [(id: String, reason: String)] = []
         for finding in pending {
             let (body, resolved) = Self.renderedBody(for: finding, ledger: ledger)
             let anchor = finding.position.flatMap { AnchorResolver.resolve($0, in: lineMaps) }
@@ -67,9 +80,17 @@ struct PublishCommand: AsyncParsableCommand {
                 demoted += 1
                 print("  ⚠ \(finding.id): anchor outside the diff — posting as a general note")
             }
-            let result = try await connection.postDiscussion(
-                iid: iid, body: body, position: anchor, diffRefs: diffRefs
-            )
+            let result: PostedDiscussion
+            do {
+                result = try await connection.postDiscussion(
+                    iid: iid, body: body, position: anchor, diffRefs: diffRefs
+                )
+            } catch {
+                let reason = ErrorExplain.describe(error)
+                failed.append((finding.id, reason))
+                print("  ✗ \(finding.id) — \(reason)")
+                continue
+            }
             let url = result.noteID.flatMap { id in mr.webURL.map { "\($0)#note_\(id)" } }
             ledger.record(finding.id, PublishedThread(
                 discussionID: result.discussionID, noteID: result.noteID, url: url, resolvedLinks: resolved
@@ -100,7 +121,19 @@ struct PublishCommand: AsyncParsableCommand {
 
         print("\nPublished \(posted); relinked \(relinked); \(skipped) skipped"
             + (demoted > 0 ? "; \(demoted) anchor(s) demoted to general" : "")
+            + (failed.isEmpty ? "" : "; \(failed.count) failed")
             + ". Ledger: \(ledgerURL.lastPathComponent)")
+        guard failed.isEmpty else {
+            // A transport/decoding failure can throw after GitLab already committed the
+            // discussion — the thread exists but the ledger doesn't know it, so a blind
+            // re-run could double-post. Say so instead of implying a clean retry.
+            throw ValidationError(
+                "\(failed.count) finding(s) failed to publish — a failure may still have "
+                + "landed server-side; check the MR, then re-run with --confirm to retry "
+                + "(posted findings are skipped): "
+                + failed.map { "\($0.id) (\($0.reason))" }.joined(separator: "; ")
+            )
+        }
     }
 
     /// A human-readable anchor for the dry-run plan.
