@@ -140,13 +140,16 @@ final class DiffMapTests: XCTestCase {
 
     func testCRLFDiffKeepsCountingAndDropsThePhantomRow() {
         // CRLF patch: every row carries "\r"; the terminator still leaves one
-        // phantom "" — and "\r\n" being a single grapheme must not matter.
-        let diff = "@@ -1,2 +1,3 @@\r\n ctx\r\n+new\r\n ctx\r\n"
+        // phantom "" — and "\r\n" being a single grapheme must not matter. The
+        // bare "\r\n" row is git's empty-context quirk: after stripping it must
+        // still count as a context line on both sides.
+        let diff = "@@ -1,3 +1,4 @@\r\n ctx\r\n\r\n+new\r\n ctx\r\n"
         let map = DiffParser.lineMaps(for: [FileDiff(oldPath: "f", newPath: "f", diff: diff)])["f"]
         XCTAssertEqual(map?.lines[1], .context(oldLine: 1))
-        XCTAssertEqual(map?.lines[2], .added)
-        XCTAssertEqual(map?.lines[3], .context(oldLine: 2))
-        XCTAssertEqual(map?.lines.count, 3)   // no phantom 4th row
+        XCTAssertEqual(map?.lines[2], .context(oldLine: 2))   // bare "\r" row
+        XCTAssertEqual(map?.lines[3], .added)                 // "+new" — numbering held
+        XCTAssertEqual(map?.lines[4], .context(oldLine: 3))
+        XCTAssertEqual(map?.lines.count, 4)   // no phantom 5th row
     }
 
     func testHunkHeaderWithoutCountsAndNoNewlineMarker() {
