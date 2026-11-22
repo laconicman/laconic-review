@@ -7,6 +7,7 @@ struct InboxRendererTests {
 
     let inbox = Inbox(
         iid: 1263,
+        kind: .gitlab,
         title: "FPM-1856: swift-pjsip 0.6.0",
         webURL: "http://git.flat.lab/FP/partner-ios/-/merge_requests/1263",
         branch: "imp/swift-pjsip-0-6-0/FPM-1856",
@@ -105,6 +106,14 @@ struct InboxRendererTests {
         let t1 = md.range(of: "try-catch")
         let t2 = md.range(of: "Сделано.")
         #expect(t1 != nil && t2 != nil && t1!.lowerBound < t2!.lowerBound)
+    }
+
+    @Test("header labels the forge: MR ! on GitLab, PR # on GitHub")
+    func forgeLabel() {
+        #expect(InboxRenderer.render(inbox).contains("# Inbox — MR !1263"))
+        let gh = Inbox(iid: inbox.iid, kind: .github, title: inbox.title, webURL: inbox.webURL,
+                       branch: inbox.branch, fetchedAt: inbox.fetchedAt, threads: inbox.threads)
+        #expect(InboxRenderer.render(gh).contains("# Inbox — PR #1263"))
     }
 
     @Test("counts: open counts resolvable-and-unresolved only")

@@ -36,7 +36,7 @@ struct FetchCommand: AsyncParsableCommand {
         let (mr, _) = try await connection.mergeRequest(iid: iid)
         let threads = try await connection.threads(iid: iid)
         let inbox = Inbox(
-            iid: iid, title: mr.title, webURL: mr.webURL,
+            iid: iid, kind: connection.kind, title: mr.title, webURL: mr.webURL,
             branch: mr.sourceBranch, fetchedAt: Date(), threads: threads
         )
 

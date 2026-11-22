@@ -13,5 +13,5 @@ enum JSON {
 
 /// `MR !965` on GitLab, `PR #965` on GitHub — the forge-appropriate way to name a review target.
 func refLabel(_ kind: ReviewHostKind, _ iid: Int) -> String {
-    kind == .github ? "PR #\(iid)" : "MR !\(iid)"
+    kind.refLabel(iid)
 }

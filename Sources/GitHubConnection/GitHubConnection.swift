@@ -225,15 +225,14 @@ public struct GitHubConnection: Sendable, ReviewHost {
 
     /// A comment's diff anchor. `line` is null on outdated threads — `originalLine`
     /// keeps the line it was written against. Replies may carry no position fields
-    /// at all; they inherit the thread's anchor — path/line from the thread, side
-    /// from its first (anchoring) comment.
+    /// at all; they inherit the thread's anchor — path/line/side (`diffSide`) from
+    /// the thread, since `PullRequestReviewComment` has no side of its own.
     static func position(_ c: GHReviewThreadComment, thread t: GHReviewThread) -> Position? {
         let file = c.path ?? t.path
         let line = c.line ?? c.originalLine ?? t.line ?? t.originalLine
         guard let file else { return nil }
         guard let line else { return Position(file: file, line: nil, lineType: .file) }
-        let side = c.side ?? t.comments.nodes.first?.side
-        return Position(file: file, line: line, lineType: side == "LEFT" ? .old : .new)
+        return Position(file: file, line: line, lineType: t.diffSide == "LEFT" ? .old : .new)
     }
 
     /// An issue comment as a standalone thread — GitHub's answer to a GitLab general note.

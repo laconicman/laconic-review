@@ -229,6 +229,7 @@ struct GitHubClient: Sendable {
                   path
                   line
                   originalLine
+                  diffSide
                   comments(first: 100) { nodes {
                     databaseId
                     body
@@ -237,7 +238,6 @@ struct GitHubClient: Sendable {
                     path
                     line
                     originalLine
-                    side
                   } }
                 }
               }
@@ -452,6 +452,9 @@ struct GHReviewThread: Decodable {
     let path: String?
     let line: Int?
     let originalLine: Int?
+    /// `LEFT`/`RIGHT` — the side the thread was anchored on. Lives on the thread:
+    /// `PullRequestReviewComment` has no side field (verified against the schema).
+    let diffSide: String?
     let comments: GHCommentNodes<GHReviewThreadComment>
 
     /// The thread's first-comment databaseId, for the thread-id lookup query.
@@ -466,7 +469,6 @@ struct GHReviewThreadComment: Decodable {
     let path: String?
     let line: Int?
     let originalLine: Int?
-    let side: String?
 }
 
 struct GHThreadsData: Decodable {

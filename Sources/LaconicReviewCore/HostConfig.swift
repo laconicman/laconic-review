@@ -142,6 +142,11 @@ extension ReviewHostKind {
     /// The environment variable read when the caller doesn't name one.
     var defaultTokenEnv: String { self == .github ? "GITHUB_TOKEN" : "GITLAB_TOKEN" }
 
+    /// `MR !965` on GitLab, `PR #965` on GitHub — the forge-appropriate target label.
+    public func refLabel(_ iid: Int) -> String {
+        self == .github ? "PR #\(iid)" : "MR !\(iid)"
+    }
+
     /// Explicit `--host` wins; otherwise the base URL's host decides. GitHub hostnames
     /// map to `.github` when a DNS label is exactly `github` (`github.com`,
     /// `github.company.com`, `gist.github.com`) — substring matching would false-positive

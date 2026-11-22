@@ -96,18 +96,18 @@ final class GitHubConnectionTests: XCTestCase {
       "pageInfo":{"hasNextPage":false,"endCursor":null,"hasPreviousPage":false,"startCursor":null},
       "nodes":[
         {"id":"PRRT_open","isResolved":false,"isOutdated":false,
-         "path":"Sources/A.swift","line":10,"originalLine":10,
+         "path":"Sources/A.swift","line":10,"originalLine":10,"diffSide":"RIGHT",
          "comments":{"nodes":[
            {"databaseId":1001,"body":"first","createdAt":"2026-01-01T00:00:00Z",
-            "author":{"login":"rev"},"path":"Sources/A.swift","line":10,"originalLine":10,"side":"RIGHT"},
+            "author":{"login":"rev"},"path":"Sources/A.swift","line":10,"originalLine":10},
            {"databaseId":1002,"body":"reply","createdAt":"2026-01-01T01:00:00Z",
-            "author":{"login":"me"},"path":null,"line":null,"originalLine":null,"side":null}
+            "author":{"login":"me"},"path":null,"line":null,"originalLine":null}
          ]}},
         {"id":"PRRT_done","isResolved":true,"isOutdated":true,
-         "path":"Sources/B.swift","line":null,"originalLine":20,
+         "path":"Sources/B.swift","line":null,"originalLine":20,"diffSide":"LEFT",
          "comments":{"nodes":[
            {"databaseId":1003,"body":"old","createdAt":"2026-01-02T00:00:00Z",
-            "author":{"login":"rev"},"path":"Sources/B.swift","line":null,"originalLine":20,"side":"LEFT"}
+            "author":{"login":"rev"},"path":"Sources/B.swift","line":null,"originalLine":20}
          ]}}
       ]}}}}}
     """

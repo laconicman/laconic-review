@@ -154,17 +154,20 @@ public struct DiscussionThread: Equatable, Sendable, Codable {
     public var isOpen: Bool { resolvable && !resolved }
 }
 
-/// What `fetch` returns: the MR plus every non-system thread, verbatim.
+/// What `fetch` returns: the MR/PR plus every non-system thread, verbatim.
 public struct Inbox: Equatable, Sendable, Codable {
     public let iid: Int
+    /// Which forge the threads came from — drives the `MR !`/`PR #` label.
+    public let kind: ReviewHostKind
     public let title: String
     public let webURL: String?
     public let branch: String
     public let fetchedAt: Date
     public let threads: [DiscussionThread]
 
-    public init(iid: Int, title: String, webURL: String?, branch: String, fetchedAt: Date, threads: [DiscussionThread]) {
+    public init(iid: Int, kind: ReviewHostKind, title: String, webURL: String?, branch: String, fetchedAt: Date, threads: [DiscussionThread]) {
         self.iid = iid
+        self.kind = kind
         self.title = title
         self.webURL = webURL
         self.branch = branch
