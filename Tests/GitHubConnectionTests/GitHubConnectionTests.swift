@@ -113,7 +113,7 @@ final class GitHubConnectionTests: XCTestCase {
     """
 
     private let issueCommentsPage = """
-    [{"id":5001,"node_id":"IC_abc","body":"general note","created_at":"2026-01-03T00:00:00Z",
+    [{"id":5001,"node_id":"IC_abc","body":"general note","created_at":"2025-12-31T00:00:00Z",
       "html_url":"https://github.com/octo/repo/pull/7#issuecomment-5001","user":{"login":"someone"}}]
     """
 
@@ -202,6 +202,9 @@ final class GitHubConnectionTests: XCTestCase {
         ]))
         let threads = try await connection(stub).threads(iid: 7)
         XCTAssertEqual(threads.count, 3)
+        // Merged sources sort by first-note time — the issue comment (2025-12-31)
+        // precedes both review threads even though it arrives second.
+        XCTAssertEqual(threads.map(\.id), ["IC_abc", "PRRT_open", "PRRT_done"])
 
         let open = try XCTUnwrap(threads.first { $0.id == "PRRT_open" })
         XCTAssertFalse(open.individualNote)

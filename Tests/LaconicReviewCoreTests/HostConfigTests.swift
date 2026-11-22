@@ -45,7 +45,10 @@ final class HostConfigTests: XCTestCase {
     }
 
     func testDetectGitLabAndUnknownDefaultToGitLab() {
-        for host in ["gitlab.com", "git.company.com", "gitlab.example.org"] {
+        // `notgithub`/`mygithub` contain the substring but no `github` DNS label —
+        // substring matching would misdetect these as GitHub.
+        for host in ["gitlab.com", "git.company.com", "gitlab.example.org",
+                     "notgithub.com", "mygithub.example.com"] {
             let url = URL(string: "https://\(host)")!
             XCTAssertEqual(ReviewHostKind.detect(explicit: nil, baseURL: url), .gitlab, host)
         }

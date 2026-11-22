@@ -143,12 +143,15 @@ extension ReviewHostKind {
     var defaultTokenEnv: String { self == .github ? "GITHUB_TOKEN" : "GITLAB_TOKEN" }
 
     /// Explicit `--host` wins; otherwise the base URL's host decides. GitHub hostnames
-    /// (`github.com`, `github.*`, `*github*`, `ghe.*`, `*.ghe.com`) map to `.github`;
-    /// everything else stays `.gitlab`.
+    /// map to `.github` when a DNS label is exactly `github` (`github.com`,
+    /// `github.company.com`, `gist.github.com`) — substring matching would false-positive
+    /// on `notgithub.com` — plus the `ghe.*`/`*.ghe.com` GHES conventions. Everything else
+    /// stays `.gitlab`; an exotic GHES hostname needs `--host github`.
     static func detect(explicit: ReviewHostKind?, baseURL: URL) -> ReviewHostKind {
         if let explicit { return explicit }
         guard let host = baseURL.host?.lowercased() else { return .gitlab }
-        if host.contains("github") || host.hasPrefix("ghe.") || host.hasSuffix(".ghe.com") {
+        if host.split(separator: ".").contains("github")
+            || host.hasPrefix("ghe.") || host.hasSuffix(".ghe.com") {
             return .github
         }
         return .gitlab

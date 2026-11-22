@@ -62,10 +62,16 @@ public struct GitHubConnection: Sendable, ReviewHost {
     /// Review threads (GraphQL) + issue comments (REST), full note bodies — what
     /// `fetch` hands to an agent. Issue comments become `individualNote` threads:
     /// standalone, unresolvable — the same shape GitLab gives a plain MR note.
+    /// Merged and sorted by first-note time so the inbox order matches GitLab's
+    /// chronological discussion list (id tiebreak keeps it deterministic).
     public func threads(iid: Int) async throws -> [DiscussionThread] {
         let reviewThreads = try await client.reviewThreads(iid).compactMap(Self.thread)
         let comments = try await client.issueComments(iid).map(Self.issueCommentThread)
-        return reviewThreads + comments
+        return (reviewThreads + comments).sorted {
+            let a = $0.notes.first?.createdAt ?? .distantPast
+            let b = $1.notes.first?.createdAt ?? .distantPast
+            return a == b ? $0.id < $1.id : a < b
+        }
     }
 
     /// The same threads reduced to publish-relevant shape — the `discussions` listing.
@@ -157,7 +163,12 @@ public struct GitHubConnection: Sendable, ReviewHost {
 
     // MARK: - ReviewHost policy
 
-    /// GitHub's definite position rejection is HTTP 422 ("Validation Failed").
+    /// GitHub's position rejection is HTTP 422 ("Validation Failed"). The fallback is
+    /// gated to *inferred* out-of-hunk anchors (`outsideHunks`) — the only anchors GitHub
+    /// structurally can't place — so a stray 422 on a real in-diff anchor still surfaces
+    /// as an error instead of silently degrading to a general note. (The 422 body isn't
+    /// inspected further: GitHub's `errors[]` detail isn't captured, and `message` is
+    /// the generic "Validation Failed".)
     public func shouldFallbackToGeneralNote(error: Error, anchor: ResolvedPosition?) -> Bool {
         guard anchor?.outsideHunks == true,
               let requestError = error as? GitHubRequestError,
