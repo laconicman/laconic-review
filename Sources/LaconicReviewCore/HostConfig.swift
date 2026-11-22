@@ -160,7 +160,6 @@ public enum ConnectionError: Error, CustomStringConvertible, Equatable {
     case missingToken(env: String)
     case cannotResolveBaseURL
     case cannotResolveProject
-    case unsupportedHost(ReviewHostKind)
 
     public var description: String {
         switch self {
@@ -170,8 +169,6 @@ public enum ConnectionError: Error, CustomStringConvertible, Equatable {
             return "Could not determine the forge URL. Pass --base-url or run inside a git repo with an `origin` remote."
         case .cannotResolveProject:
             return "Could not determine the project. Pass --project or run inside a git repo with an `origin` remote."
-        case .unsupportedHost(let kind):
-            return "The `\(kind.rawValue)` host is detected but not supported by this build yet — use --host gitlab or a GitLab remote."
         }
     }
 }

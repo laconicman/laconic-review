@@ -22,6 +22,7 @@ let package = Package(
         // The forge connections — public so their DocC stays the self-heal contract
         // (a skill re-derives mappings from the symbol graph, not from source).
         .library(name: "GitLabConnection", targets: ["GitLabConnection"]),
+        .library(name: "GitHubConnection", targets: ["GitHubConnection"]),
     ],
     dependencies: [
         // Local path dep during bring-up; swap to a Git URL once GitLabKit is published.
@@ -36,6 +37,7 @@ let package = Package(
             dependencies: [
                 "LaconicReviewCore",
                 "GitLabConnection",
+                "GitHubConnection",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             ]
@@ -53,6 +55,12 @@ let package = Package(
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             ]
         ),
+        .target(
+            name: "GitHubConnection",
+            // Hand-written URLSession client — no generated surface; GraphQL is needed
+            // anyway, so a generated REST package would only cover half the calls.
+            dependencies: ["LaconicReviewCore"]
+        ),
         .testTarget(
             name: "LaconicReviewCoreTests",
             dependencies: ["LaconicReviewCore"]
@@ -60,6 +68,10 @@ let package = Package(
         .testTarget(
             name: "GitLabConnectionTests",
             dependencies: ["GitLabConnection", "LaconicReviewCore"]
+        ),
+        .testTarget(
+            name: "GitHubConnectionTests",
+            dependencies: ["GitHubConnection", "LaconicReviewCore"]
         ),
     ]
 )

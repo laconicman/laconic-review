@@ -1,4 +1,5 @@
 import ArgumentParser
+import GitHubConnection
 import GitLabConnection
 import LaconicReviewCore
 
@@ -30,7 +31,7 @@ struct ConnectionOptions: ParsableArguments {
         case .gitlab:
             return GitLabConnection(config: config)
         case .github:
-            throw ConnectionError.unsupportedHost(.github)
+            return try GitHubConnection(config: config)
         }
     }
 
