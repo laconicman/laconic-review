@@ -49,17 +49,18 @@ There is **no letter for scope**: a general-scoped concern is still `C<n>` with 
 never `G`. New findings take the next free number in their category and never recycle a closed one.
 
 **Rating hint:** if the code *does the wrong thing* — correctness, data integrity, a stated goal
-of the MR contradicted — it's a 🔴 blocker even when the fix is one line. 🟡 is for code that
+of the MR/PR contradicted — it's a 🔴 blocker even when the fix is one line. 🟡 is for code that
 works but is built wrong; 🟢 for style.
 
 ## Scope
 
 - **`line`** — anchored to a code fragment. Anchor carries `scope=line` + `file` + `line` (range
-  `start-end` or one line) + `line_type` (`new`/`old`); publishes as a GitLab diff note. Never
-  line-anchor a file **not in the MR diff** — GitLab rejects the position. `lint` checks
+  `start-end` or one line) + `line_type` (`new`/`old`); publishes as a diff-anchored note.
+  Never line-anchor a file **not in the diff** — the forge rejects the position (GitHub can't
+  anchor outside hunks at all; those publish as general notes). `lint` checks
   `file`+`line`; SHAs aren't stored (publish fetches them fresh).
 - **`general`** — architecture, missing tests, PR description, overall design. No file/line;
-  publishes as a top-level MR note.
+  publishes as a top-level note.
 
 ## Cross-references
 

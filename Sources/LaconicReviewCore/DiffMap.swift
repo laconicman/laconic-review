@@ -4,14 +4,15 @@ import Foundation
 public struct FileDiff: Equatable, Sendable {
     public let oldPath: String
     public let newPath: String
-    /// Unified-diff hunks (`@@ … @@` sections), as returned by GitLab's diffs API.
+    /// Unified-diff hunks (`@@ … @@` sections), as returned by the forge's diff API
+    /// (GitLab `diffs`, GitHub `pulls/{n}/files` `patch`).
     public let diff: String
-    /// GitLab's file flags — they gate whether out-of-hunk offset mapping is safe.
+    /// The forge's file flags — they gate whether out-of-hunk offset mapping is safe.
     public let newFile: Bool
     public let deletedFile: Bool
     /// `too_large` means the diff text may be truncated — hunk offsets can't be
     /// trusted to describe the whole file. (`collapsed` is only a UI fold; the
-    /// diff itself is still complete.)
+    /// diff itself is still complete.) GitHub has no flag: a missing `patch` maps here.
     public let collapsed: Bool
     public let tooLarge: Bool
 
@@ -70,7 +71,7 @@ public struct FileLineMap: Equatable, Sendable {
     public let hasOldSide: Bool
     /// False for a deleted file — there is no new side.
     public let hasNewSide: Bool
-    /// False when GitLab flagged the diff `too_large` — a possibly-truncated diff
+    /// False when upstream flagged the diff `too_large` — a possibly-truncated diff
     /// makes offset mapping untrustworthy. `collapsed` doesn't gate: it's a UI
     /// fold, the diff text is still complete.
     public let diffComplete: Bool
@@ -127,7 +128,7 @@ public struct ResolvedPosition: Equatable, Sendable {
     public var oldLine: Int?
     public var newLine: Int?
     /// True when the position was inferred for an unchanged line outside every
-    /// hunk — computed, not observed in the diff. GitLab can still reject these
+    /// hunk — computed, not observed in the diff. The forge can still reject these
     /// (its blob-unfold path has size caps), so a caller may retry as a general
     /// note on a definite position rejection.
     public var outsideHunks: Bool
@@ -192,7 +193,7 @@ public enum DiffParser {
             }
             guard inHunk else { continue }
             // Git may emit a bare "" for an empty context line (no leading space);
-            // it still consumes one line on each side. GitLab anchors by line
+            // it still consumes one line on each side. The forge anchors by line
             // coordinates, not content — blank lines are publishable.
             if raw.isEmpty {
                 lines[newLine] = .context(oldLine: oldLine)
@@ -245,13 +246,13 @@ public enum DiffParser {
 public enum AnchorResolver {
     /// - `.new`/`.old` anchors are looked up in the diff symmetrically: an added or
     ///   removed line posts its own side only, a context line posts all four fields
-    ///   (GitLab rejects a one-sided position on an unchanged line).
+    ///   (the forge rejects a one-sided position on an unchanged line).
     /// - A line outside every hunk is unchanged by definition — it resolves through
     ///   the hunk offsets to a both-sides position (GitLab 19.5.3 accepts those;
     ///   verified live). Added/deleted files, `too_large` diffs, and empty diffs
     ///   still return `nil` — there is no trustworthy correspondence.
     /// - Returns `nil` when the anchor can't be expressed — the caller falls back
-    ///   to a general note rather than letting GitLab reject the whole batch.
+    ///   to a general note rather than letting the forge reject the whole batch.
     public static func resolve(_ position: Position, in maps: [String: FileLineMap]) -> ResolvedPosition? {
         guard let line = position.line else { return nil }
         guard let map = maps[position.file] else { return nil }

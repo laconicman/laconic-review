@@ -54,10 +54,12 @@ exception is `head_sha` in the review anchor — not a position input, but a *re
 stamp*: publish compares it to the current head and refuses out-of-hunk anchor inference
 when they differ, since bare line numbers can't be trusted across a push (TD-10).
 
-## Only one type knows GitLab
+## Only the connection targets know their forge
 
-Review intelligence and the report format are provider-neutral; ``GitLabConnection`` holds
-every GitLab call. A second provider is a second connection type, not a rewrite.
+Review intelligence and the report format are provider-neutral; each forge's API lives in
+its own target — ``GitLabConnection`` over GitLabKit, ``GitHubConnection`` over a
+hand-written REST+GraphQL client. A new provider is a new target conforming to
+``ReviewHost``, not a rewrite.
 
 ## Publishing is idempotent
 

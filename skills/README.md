@@ -5,8 +5,8 @@ Two skills ship with this package:
 - **[`laconic-code-review/`](laconic-code-review/)** — the CLI's companion: it reviews a branch's
   diff and emits the HTML-anchored markdown report that `laconic-review` parses, lints, and
   publishes. The package isn't much use without a skill that speaks its report format. It's
-  provider-neutral (it shells out to `laconic-review` for everything GitLab), so it already fits
-  a future GitHub seam.
+  provider-neutral (it shells out to `laconic-review` for everything forge-facing), so it
+  works on GitLab merge requests and GitHub pull requests unchanged.
 - **[`software-development-principles/`](software-development-principles/)** — a self-contained
   design-principles skill (KISS, DRY/SSOT, SOLID, coupling/cohesion, …) that `laconic-code-review`
   **consults by default**: it grounds architecture findings and supplies precise, shared

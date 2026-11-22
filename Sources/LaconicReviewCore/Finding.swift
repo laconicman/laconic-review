@@ -54,7 +54,8 @@ public enum FindingScope: String, Sendable, Equatable, Codable {
 }
 
 /// Which side of the diff an anchor refers to (`new_line` vs `old_line`), or `file` for a
-/// file-level comment that carries a path but no line (GitLab `position_type: "file"`).
+/// file-level comment that carries a path but no line (GitLab `position_type`, GitHub
+/// `subject_type: "file"`).
 public enum LineSide: String, Sendable, Equatable, Codable {
     case new
     case old
@@ -73,7 +74,7 @@ public struct Finding: Equatable, Sendable {
     public let lineEnd: Int?
     public let lineType: LineSide
     public let links: [String]
-    /// The verbatim prose block (heading + body), posted to GitLab unmodified.
+    /// The verbatim prose block (heading + body), posted to the forge unmodified.
     public let markdown: String
 
     public init(
