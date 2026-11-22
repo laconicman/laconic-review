@@ -1,6 +1,7 @@
 import Foundation
 import GitLabKit
 import GitLabOpenAPI
+import LaconicReviewCore
 import OpenAPIRuntime
 
 /// The single GitLab-aware seam.
@@ -18,14 +19,16 @@ import OpenAPIRuntime
 /// - Important: These call-sites were written against the GitLabKit README/handoff examples but
 ///   not compiled in this environment (GitLabKit is Darwin-only). On the first `swift build`,
 ///   expect to adjust exact field names / enum cases — all such risk is confined to this file.
-public struct GitLabConnection: Sendable {
+public struct GitLabConnection: Sendable, ReviewHost {
     private let client: Client
     private let project: String
 
-    public init(config: GitLabConfig) {
+    public var kind: ReviewHostKind { .gitlab }
+
+    public init(config: HostConfig) {
         // Full base URL (http *or* https) via the `serverURL:` init added to GitLabKit.
         self.client = Client(token: config.token, serverURL: config.baseURL)
-        self.project = config.projectID
+        self.project = config.projectPath
     }
 
     // MARK: - Reads
@@ -301,6 +304,19 @@ public struct GitLabConnection: Sendable {
             return Position(file: file, line: nil, lineType: .file)
         }
         return nil
+    }
+
+    // MARK: - ReviewHost policy
+
+    /// GitLab's definite position rejection is HTTP 400 (see ``DiscussionPostError``).
+    public func shouldFallbackToGeneralNote(error: Error, anchor: ResolvedPosition?) -> Bool {
+        DiscussionPostError.shouldFallbackToGeneralNote(error: error, anchor: anchor)
+    }
+
+    /// GitLab note permalinks are the MR URL plus a `#note_<id>` fragment.
+    public func noteURL(for posted: PostedDiscussion, mergeRequestWebURL: String?) -> String? {
+        guard let noteID = posted.noteID, let base = mergeRequestWebURL else { return posted.url }
+        return "\(base)#note_\(noteID)"
     }
 }
 

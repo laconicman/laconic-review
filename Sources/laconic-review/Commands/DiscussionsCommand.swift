@@ -1,14 +1,14 @@
 import ArgumentParser
 import LaconicReviewCore
 
-/// List the existing non-system review threads on an MR (idempotency input for publish).
+/// List the existing non-system review threads on an MR/PR (idempotency input for publish).
 struct DiscussionsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "discussions",
-        abstract: "List non-system discussion threads on a merge request."
+        abstract: "List non-system review threads on a merge request / pull request."
     )
 
-    @Argument(help: "Merge request iid.")
+    @Argument(help: "Merge request / pull request iid.")
     var iid: Int
 
     @OptionGroup var options: ConnectionOptions

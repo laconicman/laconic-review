@@ -4,9 +4,14 @@ import Foundation
 public struct Identity: Equatable, Sendable, Codable {
     /// GitLab types user/project `id` as `integer, format: int64`, so we mirror that wire type
     /// rather than narrowing to `Int` at the seam. (`iid` is a plain `integer` upstream — `Int`.)
+    /// GitHub's user `id` is also int64 — the seam type fits both.
     public let id: Int64
     public let username: String
     public let name: String?
+
+    public init(id: Int64, username: String, name: String?) {
+        self.id = id; self.username = username; self.name = name
+    }
 }
 
 /// MR lifecycle state, mirroring GitLab's `state` field.
@@ -40,6 +45,10 @@ public struct DiffRefs: Equatable, Sendable, Codable {
     public let baseSha: String?
     public let headSha: String?
     public let startSha: String?
+
+    public init(baseSha: String?, headSha: String?, startSha: String?) {
+        self.baseSha = baseSha; self.headSha = headSha; self.startSha = startSha
+    }
 }
 
 /// A neutral diff anchor for a discussion: a file, and a line on one side of the diff —
@@ -57,15 +66,22 @@ public struct Position: Equatable, Sendable, Codable {
     }
 }
 
-/// The result of creating a discussion: the thread id (to resolve later) and its first note id
-/// (to anchor a `#note_<id>` URL). Provider-neutral — the publish layer composes the URL.
+/// The result of creating a discussion: the thread id (to resolve later), its first note id
+/// (to anchor a permalink), and — when the host's API returns one — the note's permalink.
+/// Provider-neutral: `discussionID` is opaque to callers; each host interprets it (a GitLab
+/// discussion id, a GitHub review-thread node id, …). The publish layer persists it in the
+/// ledger and hands it back to `reply`/`resolve-thread` unchanged.
 public struct PostedDiscussion: Equatable, Sendable {
     public let discussionID: String
     public let noteID: Int?
+    /// The note's permalink when the host API returns one (GitHub `html_url`). GitLab leaves
+    /// this `nil` — its `#note_<id>` fragment is composed by ``ReviewHost/noteURL(for:mergeRequestWebURL:)``.
+    public let url: String?
 
-    public init(discussionID: String, noteID: Int?) {
+    public init(discussionID: String, noteID: Int?, url: String? = nil) {
         self.discussionID = discussionID
         self.noteID = noteID
+        self.url = url
     }
 }
 
@@ -78,6 +94,11 @@ public struct DiscussionSummary: Equatable, Sendable, Codable {
     public let resolved: Bool
     public let onDiff: Bool
     public let preview: String?
+
+    public init(id: String, noteCount: Int, resolvable: Bool, resolved: Bool, onDiff: Bool, preview: String?) {
+        self.id = id; self.noteCount = noteCount; self.resolvable = resolvable
+        self.resolved = resolved; self.onDiff = onDiff; self.preview = preview
+    }
 }
 
 /// One note inside a review thread — everything `fetch` needs to hand an agent.
