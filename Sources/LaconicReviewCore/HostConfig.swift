@@ -105,9 +105,13 @@ public enum ProjectContext {
         var string = remote.trimmingCharacters(in: .whitespacesAndNewlines)
         if string.hasSuffix(".git") { string = String(string.dropLast(4)) }
 
-        if let url = URL(string: string), let scheme = url.scheme, let host = url.host {
-            var base = "\(scheme)://\(host)"
-            if let port = url.port { base += ":\(port)" }
+        if let url = URL(string: string), let scheme = url.scheme?.lowercased(), let host = url.host {
+            // Only http(s) remotes carry a usable API base — ssh:// and friends get
+            // https on the same host (their port is the SSH port, not the web one).
+            // Schemes are case-insensitive (`HTTPS://…` is legal) — normalize first.
+            let isWeb = scheme == "http" || scheme == "https"
+            var base = "\(isWeb ? scheme : "https")://\(host)"
+            if isWeb, let port = url.port { base += ":\(port)" }
             let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard !path.isEmpty else { return nil }
             return ParsedRemote(baseURL: base, projectPath: path)

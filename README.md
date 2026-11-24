@@ -65,10 +65,10 @@ sudo ln -sf "$PWD/.build/release/laconic-review" /usr/local/bin/laconic-review
 
 ## Use
 
-The forge is detected from the `origin` remote's host — `github.com`, `ghe.*`, `*.ghe.com`
-and anything containing `github` map to GitHub; everything else stays GitLab
-(self-managed included). `--host github|gitlab` overrides detection, e.g. for an exotic
-GHES hostname.
+The forge is detected from the `origin` remote's host — a `github` DNS label
+(`github.com`, `github.company.com`), `ghe.*`, or `*.ghe.com` maps to GitHub;
+everything else stays GitLab (self-managed included). `--host github|gitlab`
+overrides detection, e.g. for an exotic GHES hostname.
 
 The token is read from the environment — `GITLAB_TOKEN` or `GITHUB_TOKEN` by default,
 `--token-env` overrides — never passed as a flag. `--project` and `--base-url` default to

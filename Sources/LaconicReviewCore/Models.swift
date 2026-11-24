@@ -29,14 +29,19 @@ public struct MergeRequestSummary: Equatable, Sendable, Codable {
     public let targetBranch: String
     public let webURL: String?
     public let updatedAt: Date?
+    /// GitHub only: the PR's head lives on a fork, not the cloned repo — such
+    /// candidates are never auto-resolved (a same-named branch on an unknown fork
+    /// must not silently win).
+    public let fromFork: Bool
 
     public init(
         iid: Int, state: MergeRequestState, title: String,
-        sourceBranch: String, targetBranch: String, webURL: String?, updatedAt: Date?
+        sourceBranch: String, targetBranch: String, webURL: String?, updatedAt: Date?,
+        fromFork: Bool = false
     ) {
         self.iid = iid; self.state = state; self.title = title
         self.sourceBranch = sourceBranch; self.targetBranch = targetBranch
-        self.webURL = webURL; self.updatedAt = updatedAt
+        self.webURL = webURL; self.updatedAt = updatedAt; self.fromFork = fromFork
     }
 }
 

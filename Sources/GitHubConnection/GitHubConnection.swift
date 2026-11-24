@@ -23,8 +23,8 @@ public struct GitHubConnection: Sendable, ReviewHost {
 
     private let client: GitHubClient
 
-    public init(config: HostConfig) throws {
-        self.client = try GitHubClient(config: config)
+    public init(config: HostConfig) {
+        self.client = GitHubClient(config: config)
     }
 
     /// Test seam — injects a client with a stubbed transport.
@@ -41,10 +41,13 @@ public struct GitHubConnection: Sendable, ReviewHost {
     }
 
     /// `GET /repos/{o}/{r}/pulls?state=all` — every PR for a branch, any state.
-    /// Filters client-side on `head.ref` so fork PRs resolve too.
+    /// Filters client-side on `head.ref` across *all* head repos: a fork PR is a
+    /// legitimate candidate but flagged `fromFork`, so the resolver never picks it
+    /// silently over an unknown same-named branch.
     public func mergeRequests(sourceBranch: String) async throws -> [MergeRequestSummary] {
         try await client.pullRequests().compactMap { pr in
-            pr.head.ref == sourceBranch ? Self.summary(pr) : nil
+            guard pr.head.ref == sourceBranch else { return nil }
+            return Self.summary(pr, fromFork: Self.isForkPR(pr))
         }
     }
 
@@ -54,20 +57,22 @@ public struct GitHubConnection: Sendable, ReviewHost {
     public func mergeRequest(iid: Int) async throws -> (summary: MergeRequestSummary, diffRefs: DiffRefs) {
         let pr = try await client.pullRequest(iid)
         return (
-            Self.summary(pr),
+            Self.summary(pr, fromFork: Self.isForkPR(pr)),
             DiffRefs(baseSha: pr.base.sha, headSha: pr.head.sha, startSha: nil)
         )
     }
 
-    /// Review threads (GraphQL) + issue comments (REST), full note bodies — what
-    /// `fetch` hands to an agent. Issue comments become `individualNote` threads:
-    /// standalone, unresolvable — the same shape GitLab gives a plain MR note.
+    /// Review threads (GraphQL) + issue comments + submitted review summaries (REST),
+    /// full note bodies — what `fetch` hands to an agent. Issue comments and review
+    /// bodies become `individualNote` threads: standalone, unresolvable — the same
+    /// shape GitLab gives a plain MR note.
     /// Merged and sorted by first-note time so the inbox order matches GitLab's
     /// chronological discussion list (id tiebreak keeps it deterministic).
     public func threads(iid: Int) async throws -> [DiscussionThread] {
         let reviewThreads = try await client.reviewThreads(iid).compactMap(Self.thread)
         let comments = try await client.issueComments(iid).map(Self.issueCommentThread)
-        return (reviewThreads + comments).sorted {
+        let summaries = try await client.reviews(iid).compactMap(Self.reviewSummaryThread)
+        return (reviewThreads + comments + summaries).sorted {
             let a = $0.notes.first?.createdAt ?? .distantPast
             let b = $1.notes.first?.createdAt ?? .distantPast
             return a == b ? $0.id < $1.id : a < b
@@ -119,7 +124,15 @@ public struct GitHubConnection: Sendable, ReviewHost {
             iid, body: body, commitID: headSHA,
             path: anchor.path, line: anchor.line, side: anchor.side
         )
-        let threadID = try await client.threadID(forCommentDatabaseId: comment.id, pullRequest: iid)
+        let threadID: String
+        do {
+            threadID = try await client.threadID(forCommentNodeID: comment.node_id, pullRequest: iid)
+        } catch {
+            // The comment is already live — surface its URL so it isn't orphaned.
+            throw GitHubRequestError.threadLookupFailed(
+                "review comment posted (\(comment.html_url)) but its thread id lookup failed: \(error)"
+            )
+        }
         return PostedDiscussion(
             discussionID: threadID, noteID: Int(comment.id), url: comment.html_url
         )
@@ -133,10 +146,11 @@ public struct GitHubConnection: Sendable, ReviewHost {
                 "`\(discussionID)` isn't a GitHub review thread — issue comments have no threaded replies"
             )
         }
+        try await verifyThread(discussionID, belongsTo: iid)
         let reply = try await client.addThreadReply(threadID: discussionID, body: body)
         return PostedDiscussion(
             discussionID: discussionID,
-            noteID: reply.databaseId.map(Int.init),
+            noteID: reply.noteID.map(Int.init),
             url: reply.url
         )
     }
@@ -148,7 +162,24 @@ public struct GitHubConnection: Sendable, ReviewHost {
                 "`\(discussionID)` isn't a GitHub review thread — issue comments can't be resolved"
             )
         }
+        try await verifyThread(discussionID, belongsTo: iid)
         try await client.setThreadResolved(threadID: discussionID, resolved: resolved)
+    }
+
+    /// Thread node ids are global across PRs — and PR numbers repeat across repos —
+    /// so a copied id would otherwise mutate a thread elsewhere. Ownership is proven
+    /// by the parent PR's *node id*: globally unique and stable across repository
+    /// renames (REST `pulls/{n}` follows renames; a `nameWithOwner` compare wouldn't).
+    private func verifyThread(_ discussionID: String, belongsTo iid: Int) async throws {
+        // REST first: an invalid project path fails here, before any GraphQL call.
+        let expected = try await client.pullRequest(iid).node_id
+        let pr = try await client.threadPullRequest(discussionID)
+        guard let pr, let theirs = pr.nodeID, let ours = expected, theirs == ours else {
+            throw GitHubRequestError.unsupportedOperation(
+                pr.map { "thread \(discussionID) belongs to PR #\($0.number) on \($0.repo), not #\(iid) here" }
+                    ?? "`\(discussionID)` isn't a review thread on PR #\(iid)"
+            )
+        }
     }
 
     /// Edit a note's body — review comments and issue comments are different REST
@@ -191,7 +222,15 @@ public struct GitHubConnection: Sendable, ReviewHost {
         discussionID.hasPrefix("PRRT_")
     }
 
-    static func summary(_ pr: GHPullRequest) -> MergeRequestSummary {
+    /// A fork PR's head lives on a different repository than its base. Comparing
+    /// `head.repo` to `base.repo` — both canonical names from the same API snapshot —
+    /// survives repository renames, unlike comparing against the (possibly stale)
+    /// `projectPath` parsed from the clone's remote.
+    static func isForkPR(_ pr: GHPullRequest) -> Bool {
+        pr.head.repo?.full_name.lowercased() != pr.base.repo?.full_name.lowercased()
+    }
+
+    static func summary(_ pr: GHPullRequest, fromFork: Bool = false) -> MergeRequestSummary {
         MergeRequestSummary(
             iid: pr.number,
             state: pr.state == "open" ? .opened : (pr.merged_at != nil ? .merged : .closed),
@@ -199,7 +238,8 @@ public struct GitHubConnection: Sendable, ReviewHost {
             sourceBranch: pr.head.ref,
             targetBranch: pr.base.ref,
             webURL: pr.html_url,
-            updatedAt: date(pr.updated_at)
+            updatedAt: date(pr.updated_at),
+            fromFork: fromFork
         )
     }
 
@@ -214,7 +254,7 @@ public struct GitHubConnection: Sendable, ReviewHost {
 
     static func note(_ c: GHReviewThreadComment, thread t: GHReviewThread) -> ThreadNote {
         ThreadNote(
-            id: c.databaseId,
+            id: c.fullDatabaseId.flatMap { Int64($0) } ?? -1,
             author: c.author?.login ?? "",
             username: c.author?.login ?? "",
             createdAt: date(c.createdAt),
@@ -246,6 +286,21 @@ public struct GitHubConnection: Sendable, ReviewHost {
         )
     }
 
+    /// A submitted PR review's body as a standalone note — GitHub's review-level
+    /// summary ("changes requested: …"), which never appears as a thread or issue
+    /// comment. Reviews without a body carry no inbox content (their inline comments
+    /// already arrive as threads); pending drafts are skipped.
+    static func reviewSummaryThread(_ r: GHReview) -> DiscussionThread? {
+        guard r.state != "PENDING", let body = r.body, !body.isEmpty else { return nil }
+        return DiscussionThread(
+            id: r.node_id, individualNote: true, resolvable: false, resolved: false,
+            notes: [ThreadNote(
+                id: r.id, author: r.user?.login ?? "", username: r.user?.login ?? "",
+                createdAt: date(r.submitted_at ?? ""), body: body, position: nil
+            )]
+        )
+    }
+
     static func summary(_ t: DiscussionThread) -> DiscussionSummary {
         DiscussionSummary(
             id: t.id,
@@ -259,20 +314,15 @@ public struct GitHubConnection: Sendable, ReviewHost {
 
     /// ``ResolvedPosition`` → GitHub's `(path, line, side)`. The new side wins when
     /// both coordinates exist (a context line posts on `RIGHT` at its new line —
-    /// same convention as GitLab's four-field position).
+    /// same convention as GitLab's four-field position). `path` prefers `newPath`:
+    /// on renames GitHub knows the file by its post-change name for both sides —
+    /// `side` already says which content the line belongs to.
     static func anchor(_ position: ResolvedPosition) throws -> (path: String, line: Int, side: String) {
-        if let line = position.newLine {
-            guard let path = position.newPath ?? position.oldPath else {
-                throw GitHubRequestError.invalidAnchor("new line without a path")
-            }
-            return (path, line, "RIGHT")
+        guard let path = position.newPath ?? position.oldPath else {
+            throw GitHubRequestError.invalidAnchor("position carries no path")
         }
-        if let line = position.oldLine {
-            guard let path = position.oldPath ?? position.newPath else {
-                throw GitHubRequestError.invalidAnchor("old line without a path")
-            }
-            return (path, line, "LEFT")
-        }
+        if let line = position.newLine { return (path, line, "RIGHT") }
+        if let line = position.oldLine { return (path, line, "LEFT") }
         throw GitHubRequestError.invalidAnchor("position carries no line")
     }
 

@@ -31,7 +31,7 @@ struct ConnectionOptions: ParsableArguments {
         case .gitlab:
             return GitLabConnection(config: config)
         case .github:
-            return try GitHubConnection(config: config)
+            return GitHubConnection(config: config)
         }
     }
 

@@ -81,12 +81,14 @@ final class GitHubConnectionTests: XCTestCase {
 
     private func pullRequestJSON(
         number: Int = 7, state: String = "open", mergedAt: String? = nil,
-        headRef: String = "feat/x", headSha: String = "headsha", baseSha: String = "basesha"
+        headRef: String = "feat/x", headSha: String = "headsha", baseSha: String = "basesha",
+        headRepo: String? = "octo/repo", baseRepo: String = "octo/repo"
     ) -> String {
         let merged = mergedAt.map { "\"\($0)\"" } ?? "null"
+        let repo = headRepo.map { #""repo":{"full_name":"\#($0)"}"# } ?? #""repo":null"#
         return """
-        {"number":\(number),"state":"\(state)","merged_at":\(merged),"title":"PR \(number)",
-         "head":{"ref":"\(headRef)","sha":"\(headSha)"},"base":{"ref":"main","sha":"\(baseSha)"},
+        {"number":\(number),"node_id":"PR_node_\(number)","state":"\(state)","merged_at":\(merged),"title":"PR \(number)",
+         "head":{"ref":"\(headRef)","sha":"\(headSha)",\(repo)},"base":{"ref":"main","sha":"\(baseSha)","repo":{"full_name":"\(baseRepo)"}},
          "html_url":"https://github.com/octo/repo/pull/\(number)","updated_at":"2026-01-02T03:04:05Z"}
         """
     }
@@ -95,18 +97,18 @@ final class GitHubConnectionTests: XCTestCase {
     {"data":{"repository":{"pullRequest":{"reviewThreads":{
       "pageInfo":{"hasNextPage":false,"endCursor":null,"hasPreviousPage":false,"startCursor":null},
       "nodes":[
-        {"id":"PRRT_open","isResolved":false,"isOutdated":false,
+        {"id":"PRRT_open","isResolved":false,
          "path":"Sources/A.swift","line":10,"originalLine":10,"diffSide":"RIGHT",
          "comments":{"nodes":[
-           {"databaseId":1001,"body":"first","createdAt":"2026-01-01T00:00:00Z",
+           {"fullDatabaseId":"1001","body":"first","createdAt":"2026-01-01T00:00:00Z",
             "author":{"login":"rev"},"path":"Sources/A.swift","line":10,"originalLine":10},
-           {"databaseId":1002,"body":"reply","createdAt":"2026-01-01T01:00:00Z",
+           {"fullDatabaseId":"1002","body":"reply","createdAt":"2026-01-01T01:00:00Z",
             "author":{"login":"me"},"path":null,"line":null,"originalLine":null}
          ]}},
-        {"id":"PRRT_done","isResolved":true,"isOutdated":true,
+        {"id":"PRRT_done","isResolved":true,
          "path":"Sources/B.swift","line":null,"originalLine":20,"diffSide":"LEFT",
          "comments":{"nodes":[
-           {"databaseId":1003,"body":"old","createdAt":"2026-01-02T00:00:00Z",
+           {"fullDatabaseId":"1003","body":"old","createdAt":"2026-01-02T00:00:00Z",
             "author":{"login":"rev"},"path":"Sources/B.swift","line":null,"originalLine":20}
          ]}}
       ]}}}}}
@@ -115,6 +117,17 @@ final class GitHubConnectionTests: XCTestCase {
     private let issueCommentsPage = """
     [{"id":5001,"node_id":"IC_abc","body":"general note","created_at":"2025-12-31T00:00:00Z",
       "html_url":"https://github.com/octo/repo/pull/7#issuecomment-5001","user":{"login":"someone"}}]
+    """
+
+    private let reviewsPage = """
+    [
+      {"id":6001,"node_id":"PRR_summary","body":"looks close — one nit below",
+       "state":"COMMENTED","submitted_at":"2026-01-03T00:00:00Z","user":{"login":"rev"}},
+      {"id":6002,"node_id":"PRR_empty","body":"","state":"APPROVED",
+       "submitted_at":"2026-01-03T01:00:00Z","user":{"login":"rev"}},
+      {"id":6003,"node_id":"PRR_pending","body":"draft","state":"PENDING",
+       "submitted_at":null,"user":{"login":"me"}}
+    ]
     """
 
     // MARK: - Reads
@@ -142,16 +155,38 @@ final class GitHubConnectionTests: XCTestCase {
                 + pullRequestJSON(number: 7, state: "open", headRef: "feat/x") + ","
                 + pullRequestJSON(number: 8, state: "closed", mergedAt: "2026-01-01T00:00:00Z", headRef: "feat/x") + ","
                 + pullRequestJSON(number: 9, state: "closed", headRef: "other") + ","
-                + pullRequestJSON(number: 10, state: "closed", headRef: "feat/x") + "]")),
+                // Different casing still matches — GitHub paths are case-insensitive.
+                + pullRequestJSON(number: 10, state: "closed", headRef: "feat/x", headRepo: "Octo/Repo") + ","
+                // Same branch name on another fork — a different PR, must not match.
+                + pullRequestJSON(number: 11, state: "open", headRef: "feat/x", headRepo: "evil/repo") + ","
+                // Deleted fork: head.repo is null — can't be this clone's PR.
+                + pullRequestJSON(number: 12, state: "open", headRef: "feat/x", headRepo: nil) + "]")),
         ]))
         let summaries = try await connection(stub).mergeRequests(sourceBranch: "feat/x")
-        XCTAssertEqual(summaries.map(\.iid), [7, 8, 10])
+        // Every head.ref match is returned — forks included, flagged `fromFork`
+        // so the resolver never auto-picks one over an unknown same-named branch.
+        XCTAssertEqual(summaries.map(\.iid), [7, 8, 10, 11, 12])
+        XCTAssertEqual(summaries.map(\.fromFork), [false, false, false, true, true])
         XCTAssertEqual(summaries[0].state, .opened)
         XCTAssertEqual(summaries[1].state, .merged)
         XCTAssertEqual(summaries[2].state, .closed)
         XCTAssertEqual(summaries[0].sourceBranch, "feat/x")
         XCTAssertEqual(summaries[0].targetBranch, "main")
         XCTAssertEqual(summaries[0].webURL, "https://github.com/octo/repo/pull/7")
+    }
+
+    func testMergeRequestsSurvivesRepoRename() async throws {
+        // Branch resolution goes through this list path — a same-repo PR whose
+        // head/base both report the *current* name must stay non-fork, or the
+        // resolver would stop auto-selecting it after a rename.
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls", ok("["
+                + pullRequestJSON(number: 7, state: "open", headRepo: "octo/renamed", baseRepo: "octo/renamed") + ","
+                + pullRequestJSON(number: 8, state: "open", headRepo: "fork-owner/repo") + "]")),
+        ]))
+        let summaries = try await connection(stub).mergeRequests(sourceBranch: "feat/x")
+        XCTAssertEqual(summaries.map(\.iid), [7, 8])
+        XCTAssertEqual(summaries.map(\.fromFork), [false, true])
     }
 
     func testMergeRequestReturnsSummaryAndDiffRefs() async throws {
@@ -163,6 +198,26 @@ final class GitHubConnectionTests: XCTestCase {
         XCTAssertEqual(diffRefs.headSha, "H")
         XCTAssertEqual(diffRefs.baseSha, "B")
         XCTAssertNil(diffRefs.startSha)   // GitHub has no start-sha equivalent
+        XCTAssertFalse(summary.fromFork)
+    }
+
+    func testMergeRequestFlagsForkPRs() async throws {
+        // Same flag as branch lookup — a fork PR fetched by iid isn't "same repo".
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON(headRepo: "fork-owner/repo"))),
+        ]))
+        let (summary, _) = try await connection(stub).mergeRequest(iid: 7)
+        XCTAssertTrue(summary.fromFork)
+    }
+
+    func testMergeRequestSurvivesRepoRename() async throws {
+        // After a rename the API reports the *current* name for both head and base —
+        // they still match each other even though projectPath holds the old name.
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON(headRepo: "octo/renamed", baseRepo: "octo/renamed"))),
+        ]))
+        let (summary, _) = try await connection(stub).mergeRequest(iid: 7)
+        XCTAssertFalse(summary.fromFork)
     }
 
     func testMergeRequestDiffsMapsFilesEndpoint() async throws {
@@ -195,16 +250,16 @@ final class GitHubConnectionTests: XCTestCase {
         XCTAssertEqual(diffs[3].diff, "")
     }
 
-    func testThreadsCombinesReviewThreadsAndIssueComments() async throws {
+    func testThreadsCombinesReviewThreadsIssueCommentsAndReviews() async throws {
         let stub = Stub(handler: router([
             ("ReviewThreads", ok(reviewThreadsPage)),
             ("GET /repos/octo/repo/issues/7/comments", ok(issueCommentsPage)),
+            ("GET /repos/octo/repo/pulls/7/reviews", ok(reviewsPage)),
         ]))
         let threads = try await connection(stub).threads(iid: 7)
-        XCTAssertEqual(threads.count, 3)
-        // Merged sources sort by first-note time — the issue comment (2025-12-31)
-        // precedes both review threads even though it arrives second.
-        XCTAssertEqual(threads.map(\.id), ["IC_abc", "PRRT_open", "PRRT_done"])
+        // IC_abc (2025-12-31), PRRT_open (01-01), PRRT_done (01-02), PRR_summary
+        // (01-03); empty-body and pending reviews are skipped.
+        XCTAssertEqual(threads.map(\.id), ["IC_abc", "PRRT_open", "PRRT_done", "PRR_summary"])
 
         let open = try XCTUnwrap(threads.first { $0.id == "PRRT_open" })
         XCTAssertFalse(open.individualNote)
@@ -226,15 +281,22 @@ final class GitHubConnectionTests: XCTestCase {
         XCTAssertTrue(comment.individualNote)
         XCTAssertFalse(comment.resolvable)
         XCTAssertNil(comment.notes[0].position)
+
+        let summary = try XCTUnwrap(threads.first { $0.id == "PRR_summary" })
+        XCTAssertTrue(summary.individualNote)
+        XCTAssertFalse(summary.resolvable)
+        XCTAssertEqual(summary.notes[0].body, "looks close — one nit below")
+        XCTAssertEqual(summary.notes[0].author, "rev")
     }
 
     func testDiscussionsReducesThreads() async throws {
         let stub = Stub(handler: router([
             ("ReviewThreads", ok(reviewThreadsPage)),
             ("GET /repos/octo/repo/issues/7/comments", ok(issueCommentsPage)),
+            ("GET /repos/octo/repo/pulls/7/reviews", ok(reviewsPage)),
         ]))
         let summaries = try await connection(stub).discussions(iid: 7)
-        XCTAssertEqual(summaries.count, 3)
+        XCTAssertEqual(summaries.count, 4)
         let open = try XCTUnwrap(summaries.first { $0.id == "PRRT_open" })
         XCTAssertEqual(open.noteCount, 2)
         XCTAssertTrue(open.onDiff)
@@ -254,12 +316,13 @@ final class GitHubConnectionTests: XCTestCase {
         let emptyThreads = #"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null,"hasPreviousPage":false,"startCursor":null},"nodes":[]}}}}}"#
         let stub = Stub(handler: router([
             ("ReviewThreads", ok(emptyThreads)),
+            ("GET /repos/octo/repo/pulls/7/reviews", ok("[]")),
             ("comments?per_page=100&page=2", ok(page2)),
             ("comments?per_page=100&page=1", ok(page1)),
         ]))
         let threads = try await connection(stub).threads(iid: 7)
         XCTAssertEqual(threads.count, 101)
-        XCTAssertEqual(stub.requests.count, 3)   // graphql + two REST pages
+        XCTAssertEqual(stub.requests.count, 4)   // graphql + reviews + two comment pages
     }
 
     // MARK: - Writes: postDiscussion
@@ -290,7 +353,7 @@ final class GitHubConnectionTests: XCTestCase {
         let threadLookup = """
         {"data":{"repository":{"pullRequest":{"reviewThreads":{
           "pageInfo":{"hasNextPage":false,"endCursor":null,"hasPreviousPage":false,"startCursor":null},
-          "nodes":[{"id":"PRRT_new","comments":{"nodes":[{"databaseId":2002}]}}]
+          "nodes":[{"id":"PRRT_new","comments":{"nodes":[{"id":"PRRC_x"}]}}]
         }}}}}
         """
         let stub = Stub(handler: router([
@@ -342,10 +405,15 @@ final class GitHubConnectionTests: XCTestCase {
     // MARK: - Writes: postNote / resolveThread / updateNote
 
     func testPostNoteRepliesViaGraphQLMutation() async throws {
+        // verifyThread: REST pulls/7 supplies the expected node_id; the thread's
+        // parent PR must carry the same one.
+        let threadPR = #"{"data":{"node":{"pullRequest":{"id":"PR_node_7","number":7,"repository":{"nameWithOwner":"octo/repo"}}}}}"#
         let response = """
-        {"data":{"addPullRequestReviewThreadReply":{"comment":{"databaseId":3003,"url":"https://github.com/octo/repo/pull/7#discussion_r3003"}}}}
+        {"data":{"addPullRequestReviewThreadReply":{"comment":{"fullDatabaseId":"3003","url":"https://github.com/octo/repo/pull/7#discussion_r3003"}}}}
         """
         let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON())),
+            ("ReviewThreadPR", ok(threadPR)),
             ("ReplyToReviewThread", ok(response)),
         ]))
         let posted = try await connection(stub).postNote(
@@ -354,13 +422,70 @@ final class GitHubConnectionTests: XCTestCase {
         XCTAssertEqual(posted.discussionID, "PRRT_x")
         XCTAssertEqual(posted.noteID, 3003)
         XCTAssertEqual(posted.url, "https://github.com/octo/repo/pull/7#discussion_r3003")
+        XCTAssertEqual(stub.requests.count, 3)   // ownership REST + GraphQL, then the mutation
 
-        let request = try XCTUnwrap(stub.requests.first)
+        let request = stub.requests[2]
         XCTAssertEqual(request.url?.path, "/graphql")
         let body = requestBody(request)
         let variables = try XCTUnwrap(body["variables"] as? [String: Any])
         XCTAssertEqual(variables["threadId"] as? String, "PRRT_x")
         XCTAssertEqual(variables["body"] as? String, "a reply")
+    }
+
+    func testPostNoteRejectsThreadFromAnotherPR() async throws {
+        // Node ids are global — a PRRT_ id copied from PR #9 must not reply on it.
+        // (evil/repo's #7 would carry a different node id than octo/repo's #7.)
+        let threadPR = #"{"data":{"node":{"pullRequest":{"id":"PR_node_9","number":9,"repository":{"nameWithOwner":"octo/repo"}}}}}"#
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON())),
+            ("ReviewThreadPR", ok(threadPR)),
+        ]))
+        do {
+            _ = try await connection(stub).postNote(iid: 7, discussionID: "PRRT_other", body: "x")
+            XCTFail("expected unsupportedOperation")
+        } catch let error as GitHubRequestError {
+            guard case .unsupportedOperation(let detail) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("PR #9"))
+        }
+        XCTAssertEqual(stub.requests.count, 2)   // verify ran; mutation never did
+    }
+
+    func testPostNoteRejectsThreadFromAnotherRepo() async throws {
+        // PR numbers repeat across repos — #7 on evil/repo has a different node id.
+        let threadPR = #"{"data":{"node":{"pullRequest":{"id":"PR_node_evil","number":7,"repository":{"nameWithOwner":"evil/repo"}}}}}"#
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON())),
+            ("ReviewThreadPR", ok(threadPR)),
+        ]))
+        do {
+            _ = try await connection(stub).postNote(iid: 7, discussionID: "PRRT_x", body: "x")
+            XCTFail("expected unsupportedOperation")
+        } catch let error as GitHubRequestError {
+            guard case .unsupportedOperation(let detail) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(detail.contains("evil/repo"))
+        }
+        XCTAssertEqual(stub.requests.count, 2)
+    }
+
+    func testPostNoteSurvivesRepoRename() async throws {
+        // The thread's parent reports the *current* repo name — ownership is proven
+        // by node id, so a renamed repo doesn't break replies.
+        let threadPR = #"{"data":{"node":{"pullRequest":{"id":"PR_node_7","number":7,"repository":{"nameWithOwner":"octo/renamed"}}}}}"#
+        let response = """
+        {"data":{"addPullRequestReviewThreadReply":{"comment":{"fullDatabaseId":"3004","url":"u"}}}}
+        """
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON())),
+            ("ReviewThreadPR", ok(threadPR)),
+            ("ReplyToReviewThread", ok(response)),
+        ]))
+        let posted = try await connection(stub).postNote(iid: 7, discussionID: "PRRT_x", body: "re")
+        XCTAssertEqual(posted.discussionID, "PRRT_x")
+        XCTAssertEqual(stub.requests.count, 3)
     }
 
     func testPostNoteRejectsNonThreadID() async throws {
@@ -377,15 +502,18 @@ final class GitHubConnectionTests: XCTestCase {
     }
 
     func testResolveThreadUsesGraphQLMutation() async throws {
+        let threadPR = #"{"data":{"node":{"pullRequest":{"id":"PR_node_7","number":7,"repository":{"nameWithOwner":"octo/repo"}}}}}"#
         let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON())),
+            ("ReviewThreadPR", ok(threadPR)),
             ("ResolveReviewThread", ok(#"{"data":{"resolveReviewThread":{"thread":{"id":"PRRT_x","isResolved":true}}}}"#)),
             ("UnresolveReviewThread", ok(#"{"data":{"unresolveReviewThread":{"thread":{"id":"PRRT_x","isResolved":false}}}}"#)),
         ]))
         try await connection(stub).resolveThread(iid: 7, discussionID: "PRRT_x", resolved: true)
         try await connection(stub).resolveThread(iid: 7, discussionID: "PRRT_x", resolved: false)
-        XCTAssertEqual(stub.requests.count, 2)
-        let firstVars = requestBody(stub.requests[0])["variables"] as? [String: Any]
-        XCTAssertEqual(firstVars?["threadId"] as? String, "PRRT_x")
+        XCTAssertEqual(stub.requests.count, 6)   // REST+GraphQL verify + mutation, twice
+        let lastVars = requestBody(stub.requests[5])["variables"] as? [String: Any]
+        XCTAssertEqual(lastVars?["threadId"] as? String, "PRRT_x")
     }
 
     func testResolveThreadRejectsIssueComment() async throws {
@@ -414,6 +542,48 @@ final class GitHubConnectionTests: XCTestCase {
         ])
         XCTAssertEqual(stub.requests.map(\.httpMethod), ["PATCH", "PATCH"])
         XCTAssertEqual(requestBody(stub.requests[0])["body"] as? String, "edited")
+    }
+
+    // MARK: - Endpoint routing & project scope
+
+    /// The three GitHub API shapes: dotcom, data-residency `*.ghe.com`, GHES.
+    /// GraphQL is *not* under the REST root on GHES (`/api/graphql`, not `/api/v3/graphql`).
+    func testClientEndpointRouting() {
+        func client(_ base: String) -> GitHubClient {
+            GitHubClient(config: HostConfig(
+                kind: .github, baseURL: URL(string: base)!,
+                projectPath: "octo/repo", token: "tok"
+            ))
+        }
+        let dotcom = client("https://github.com")
+        XCTAssertEqual(dotcom.api.absoluteString, "https://api.github.com")
+        XCTAssertEqual(dotcom.graphqlURL.absoluteString, "https://api.github.com/graphql")
+
+        let ghes = client("https://ghe.corp.example.com")
+        XCTAssertEqual(ghes.api.absoluteString, "https://ghe.corp.example.com/api/v3")
+        XCTAssertEqual(ghes.graphqlURL.absoluteString, "https://ghe.corp.example.com/api/graphql")
+
+        let residency = client("https://tenant.ghe.com")
+        XCTAssertEqual(residency.api.absoluteString, "https://api.tenant.ghe.com")
+        XCTAssertEqual(residency.graphqlURL.absoluteString, "https://api.tenant.ghe.com/graphql")
+    }
+
+    /// `whoami` runs without a project: owner/repo stay nil and only repo-scoped
+    /// calls fail — `user()` needs no scope.
+    func testProjectlessConfigFailsOnlyOnRepoCalls() async {
+        let client = GitHubClient(config: HostConfig(
+            kind: .github, baseURL: URL(string: "https://github.com")!,
+            projectPath: "", token: "tok"
+        ))
+        XCTAssertNil(client.owner)
+        XCTAssertNil(client.repo)
+        XCTAssertNil(client.repoFullName)
+        do {
+            _ = try await client.pullRequests()
+            XCTFail("expected invalidProjectPath")
+        } catch let error as GitHubRequestError {
+            XCTAssertEqual(error, .invalidProjectPath(""))
+        } catch { XCTFail("wrong error: \(error)") }
     }
 
     // MARK: - Policy
@@ -461,6 +631,13 @@ final class GitHubConnectionTests: XCTestCase {
         XCTAssertEqual(anchor.path, "old.swift")
         XCTAssertEqual(anchor.line, 3)
         XCTAssertEqual(anchor.side, "LEFT")
+        // Old-side anchor on a rename: path is the post-change name — `side` says LEFT.
+        anchor = try GitHubConnection.anchor(
+            ResolvedPosition(oldPath: "old.swift", newPath: "new.swift", oldLine: 3)
+        )
+        XCTAssertEqual(anchor.path, "new.swift")
+        XCTAssertEqual(anchor.line, 3)
+        XCTAssertEqual(anchor.side, "LEFT")
         XCTAssertThrowsError(try GitHubConnection.anchor(ResolvedPosition()))
     }
 
@@ -473,8 +650,9 @@ final class GitHubConnectionTests: XCTestCase {
     func testPullRequestStateMapping() {
         func pr(_ state: String, mergedAt: String?) -> GHPullRequest {
             GHPullRequest(number: 1, state: state, merged_at: mergedAt, title: "t",
-                          head: .init(ref: "b", sha: "h"), base: .init(ref: "m", sha: "s"),
-                          html_url: "u", updated_at: "2026-01-01T00:00:00Z")
+                          head: .init(ref: "b", sha: "h", repo: nil),
+                          base: .init(ref: "m", sha: "s", repo: nil),
+                          html_url: "u", updated_at: "2026-01-01T00:00:00Z", node_id: nil)
         }
         XCTAssertEqual(GitHubConnection.summary(pr("open", mergedAt: nil)).state, .opened)
         XCTAssertEqual(GitHubConnection.summary(pr("closed", mergedAt: "2026-01-01T00:00:00Z")).state, .merged)
