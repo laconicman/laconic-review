@@ -175,6 +175,20 @@ final class GitHubConnectionTests: XCTestCase {
         XCTAssertEqual(summaries[0].webURL, "https://github.com/octo/repo/pull/7")
     }
 
+    func testMergeRequestsSurvivesRepoRename() async throws {
+        // Branch resolution goes through this list path — a same-repo PR whose
+        // head/base both report the *current* name must stay non-fork, or the
+        // resolver would stop auto-selecting it after a rename.
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls", ok("["
+                + pullRequestJSON(number: 7, state: "open", headRepo: "octo/renamed", baseRepo: "octo/renamed") + ","
+                + pullRequestJSON(number: 8, state: "open", headRepo: "fork-owner/repo") + "]")),
+        ]))
+        let summaries = try await connection(stub).mergeRequests(sourceBranch: "feat/x")
+        XCTAssertEqual(summaries.map(\.iid), [7, 8])
+        XCTAssertEqual(summaries.map(\.fromFork), [false, true])
+    }
+
     func testMergeRequestReturnsSummaryAndDiffRefs() async throws {
         let stub = Stub(handler: router([
             ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON(headSha: "H", baseSha: "B"))),
