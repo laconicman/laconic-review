@@ -106,8 +106,11 @@ public enum ProjectContext {
         if string.hasSuffix(".git") { string = String(string.dropLast(4)) }
 
         if let url = URL(string: string), let scheme = url.scheme, let host = url.host {
-            var base = "\(scheme)://\(host)"
-            if let port = url.port { base += ":\(port)" }
+            // Only http(s) remotes carry a usable API base — ssh:// and friends get
+            // https on the same host (their port is the SSH port, not the web one).
+            let isWeb = scheme == "http" || scheme == "https"
+            var base = "\(isWeb ? scheme : "https")://\(host)"
+            if isWeb, let port = url.port { base += ":\(port)" }
             let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard !path.isEmpty else { return nil }
             return ParsedRemote(baseURL: base, projectPath: path)

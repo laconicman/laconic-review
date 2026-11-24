@@ -23,6 +23,12 @@ final class HostConfigTests: XCTestCase {
         XCTAssertEqual(parsed, .init(baseURL: "https://github.com", projectPath: "laconicman/laconic-review"))
     }
 
+    func testParseSSHRemoteNormalizesToHTTPS() {
+        // ssh:// carries the SSH port, not the web one — the API base is plain https.
+        let parsed = ProjectContext.parse(remote: "ssh://git@gitlab.example.com:2222/group/project.git")
+        XCTAssertEqual(parsed, .init(baseURL: "https://gitlab.example.com", projectPath: "group/project"))
+    }
+
     func testParseRejectsHostWithoutProject() {
         XCTAssertNil(ProjectContext.parse(remote: "https://github.com"))
         XCTAssertNil(ProjectContext.parse(remote: "not a remote at all"))

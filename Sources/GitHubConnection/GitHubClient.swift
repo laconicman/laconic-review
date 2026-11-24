@@ -10,7 +10,8 @@ public enum GitHubRequestError: Error, Equatable, CustomStringConvertible {
     case graphql(String)
     /// Response body didn't match the expected shape.
     case decodingFailed(String)
-    /// `projectPath` isn't `owner/repo`.
+    /// `projectPath` isn't `owner/repo` — raised lazily by repo-scoped calls so
+    /// project-less operations (`whoami`) still work.
     case invalidProjectPath(String)
     /// A line anchor was requested without a head SHA to anchor it to.
     case missingHeadSHA
@@ -19,6 +20,10 @@ public enum GitHubRequestError: Error, Equatable, CustomStringConvertible {
     /// The operation doesn't exist for this id kind on GitHub (e.g. resolving an
     /// issue comment, which has no thread).
     case unsupportedOperation(String)
+    /// A review comment posted but its `PRRT_…` thread id couldn't be resolved —
+    /// the comment is live on the PR; only the ledger link is missing. Detail
+    /// carries the comment URL and the underlying failure.
+    case threadLookupFailed(String)
 
     public var description: String {
         switch self {
@@ -30,6 +35,7 @@ public enum GitHubRequestError: Error, Equatable, CustomStringConvertible {
         case .missingHeadSHA: return "no head SHA to anchor the comment to"
         case .invalidAnchor(let detail): return "anchor doesn't translate to a GitHub position — \(detail)"
         case .unsupportedOperation(let detail): return detail
+        case .threadLookupFailed(let detail): return detail
         }
     }
 }
@@ -39,26 +45,43 @@ public enum GitHubRequestError: Error, Equatable, CustomStringConvertible {
 /// can't express: review threads with resolved state, thread replies, and
 /// resolve/unresolve — all keyed by `PRRT_…` node ids.
 struct GitHubClient: Sendable {
-    /// REST root: `https://api.github.com`, or `{GHES}/api/v3`.
+    /// REST root: `https://api.github.com`, `https://api.{tenant}.ghe.com` for
+    /// data-residency tenants, or `{GHES}/api/v3`.
     let api: URL
+    /// GraphQL endpoint — GHES mounts it at `/api/graphql`, *not* under the REST
+    /// `/api/v3` root; `*.ghe.com` tenants serve it on the same `api.` host.
+    let graphqlURL: URL
     let token: String
-    let owner: String
-    let repo: String
+    /// `owner`/`repo` stay nil when `projectPath` isn't `owner/repo` (e.g. `whoami`
+    /// runs project-less) — repo-scoped calls then throw ``invalidProjectPath``.
+    let owner: String?
+    let repo: String?
+    /// The raw `projectPath`, kept for the ``invalidProjectPath`` error message.
+    let projectPath: String
     /// One HTTP round-trip — `URLSession` in production; tests inject a stub.
     let send: @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
-    init(config: HostConfig) throws {
-        let parts = config.projectPath.split(separator: "/", omittingEmptySubsequences: true)
-        guard parts.count == 2 else {
-            throw GitHubRequestError.invalidProjectPath(config.projectPath)
-        }
-        owner = String(parts[0])
-        repo = String(parts[1])
+    init(config: HostConfig) {
         token = config.token
-        // github.com speaks on api.github.com; GHES mounts the API under /api/v3.
-        api = config.baseURL.host == "github.com"
-            ? URL(string: "https://api.github.com")!
-            : config.baseURL.appendingPathComponent("api/v3")
+        projectPath = config.projectPath
+        let host = config.baseURL.host?.lowercased() ?? ""
+        if host == "github.com" {
+            api = URL(string: "https://api.github.com")!
+            graphqlURL = URL(string: "https://api.github.com/graphql")!
+        } else if host.hasSuffix(".ghe.com") {
+            // GitHub Enterprise Cloud with data residency: the API lives on
+            // `api.{tenant}.ghe.com`, not on the tenant host itself.
+            let apiHost = host.hasPrefix("api.") ? host : "api.\(host)"
+            api = URL(string: "https://\(apiHost)")!
+            graphqlURL = URL(string: "https://\(apiHost)/graphql")!
+        } else {
+            // GHES mounts REST under /api/v3 and GraphQL under /api/graphql.
+            api = config.baseURL.appendingPathComponent("api/v3")
+            graphqlURL = config.baseURL.appendingPathComponent("api/graphql")
+        }
+        let parts = config.projectPath.split(separator: "/", omittingEmptySubsequences: true)
+        owner = parts.count == 2 ? String(parts[0]) : nil
+        repo = parts.count == 2 ? String(parts[1]) : nil
         send = { try await URLSession.shared.data(for: $0) }
     }
 
@@ -66,8 +89,10 @@ struct GitHubClient: Sendable {
     init(api: URL, owner: String, repo: String, token: String,
          send: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)) {
         self.api = api
+        self.graphqlURL = api.appendingPathComponent("graphql")
         self.owner = owner
         self.repo = repo
+        self.projectPath = "\(owner)/\(repo)"
         self.token = token
         self.send = send
     }
@@ -78,10 +103,10 @@ struct GitHubClient: Sendable {
         try await request("GET", "user")
     }
 
-    /// Every pull request, all pages — the caller filters by `head.ref`, which catches
-    /// fork PRs a `head=owner:branch` query would miss.
+    /// Every pull request, all pages — the caller filters by `head.ref`/`head.repo`,
+    /// which catches fork PRs a `head=owner:branch` query would miss.
     func pullRequests() async throws -> [GHPullRequest] {
-        try await paged("repos/\(owner)/\(repo)/pulls", query: [
+        try await paged(try repoPath("pulls"), query: [
             URLQueryItem(name: "state", value: "all"),
             URLQueryItem(name: "sort", value: "updated"),
             URLQueryItem(name: "direction", value: "desc"),
@@ -89,15 +114,21 @@ struct GitHubClient: Sendable {
     }
 
     func pullRequest(_ number: Int) async throws -> GHPullRequest {
-        try await request("GET", "repos/\(owner)/\(repo)/pulls/\(number)")
+        try await request("GET", try repoPath("pulls/\(number)"))
     }
 
     func pullRequestFiles(_ number: Int) async throws -> [GHPullRequestFile] {
-        try await paged("repos/\(owner)/\(repo)/pulls/\(number)/files")
+        try await paged(try repoPath("pulls/\(number)/files"))
+    }
+
+    /// Submitted reviews — their bodies are the review-level summaries `threads`
+    /// surfaces as standalone notes.
+    func reviews(_ number: Int) async throws -> [GHReview] {
+        try await paged(try repoPath("pulls/\(number)/reviews"))
     }
 
     func issueComments(_ number: Int) async throws -> [GHIssueComment] {
-        try await paged("repos/\(owner)/\(repo)/issues/\(number)/comments")
+        try await paged(try repoPath("issues/\(number)/comments"))
     }
 
     // MARK: - REST writes
@@ -105,7 +136,7 @@ struct GitHubClient: Sendable {
     /// `POST /issues/{n}/comments` — a general (non-anchored) note on the PR.
     func createIssueComment(_ number: Int, body: String) async throws -> GHIssueComment {
         try await request(
-            "POST", "repos/\(owner)/\(repo)/issues/\(number)/comments",
+            "POST", try repoPath("issues/\(number)/comments"),
             body: GHCommentBody(body: body)
         )
     }
@@ -116,7 +147,7 @@ struct GitHubClient: Sendable {
         _ number: Int, body: String, commitID: String, path: String, line: Int, side: String
     ) async throws -> GHReviewComment {
         try await request(
-            "POST", "repos/\(owner)/\(repo)/pulls/\(number)/comments",
+            "POST", try repoPath("pulls/\(number)/comments"),
             body: GHReviewCommentBody(body: body, commit_id: commitID, path: path, line: line, side: side)
         )
     }
@@ -124,7 +155,7 @@ struct GitHubClient: Sendable {
     /// `PATCH /pulls/comments/{id}` — edit a review comment's body (publish pass 2).
     func updateReviewComment(_ id: Int64, body: String) async throws {
         let _: GHReviewComment = try await request(
-            "PATCH", "repos/\(owner)/\(repo)/pulls/comments/\(id)",
+            "PATCH", try repoPath("pulls/comments/\(id)"),
             body: GHCommentBody(body: body)
         )
     }
@@ -132,7 +163,7 @@ struct GitHubClient: Sendable {
     /// `PATCH /issues/comments/{id}` — edit an issue comment's body.
     func updateIssueComment(_ id: Int64, body: String) async throws {
         let _: GHIssueComment = try await request(
-            "PATCH", "repos/\(owner)/\(repo)/issues/comments/\(id)",
+            "PATCH", try repoPath("issues/comments/\(id)"),
             body: GHCommentBody(body: body)
         )
     }
@@ -142,11 +173,12 @@ struct GitHubClient: Sendable {
     /// All review threads with resolved state and comment bodies — `fetch`/`discussions`.
     /// Comments deeper than 100 in one thread aren't fetched (pathological; noted).
     func reviewThreads(_ number: Int) async throws -> [GHReviewThread] {
+        let scope = try repoScope()
         var all: [GHReviewThread] = []
         var cursor: String? = nil
         while true {
             var variables: [String: JSONValue] = [
-                "owner": .string(owner), "repo": .string(repo), "number": .int(number),
+                "owner": .string(scope.owner), "repo": .string(scope.repo), "number": .int(number),
             ]
             if let cursor { variables["cursor"] = .string(cursor) }
             let page: GHThreadsData = try await graphql(Self.threadsQuery, variables: variables)
@@ -161,27 +193,45 @@ struct GitHubClient: Sendable {
 
     /// The `PRRT_…` node id of the thread a just-posted review comment started.
     /// A standalone `POST /pulls/{n}/comments` always opens a new thread whose first
-    /// (only) comment is ours — match on `databaseId`. Walks *backward* (`last`/`before`)
-    /// because the new thread is the newest: almost always the first page.
-    func threadID(forCommentDatabaseId id: Int64, pullRequest number: Int) async throws -> String {
+    /// (only) comment is ours — match on the comment's node `id` (a string, immune to
+    /// the GraphQL `Int` ceiling `databaseId` would hit). Walks *backward*
+    /// (`last`/`before`) because the new thread is the newest: almost always the
+    /// first page.
+    func threadID(forCommentNodeID nodeID: String, pullRequest number: Int) async throws -> String {
+        let scope = try repoScope()
         var cursor: String? = nil
         while true {
             var variables: [String: JSONValue] = [
-                "owner": .string(owner), "repo": .string(repo), "number": .int(number),
+                "owner": .string(scope.owner), "repo": .string(scope.repo), "number": .int(number),
             ]
             if let cursor { variables["before"] = .string(cursor) }
             let page: GHThreadIDsData = try await graphql(Self.threadIDsQuery, variables: variables)
             guard let threads = page.repository?.pullRequest?.reviewThreads else {
                 throw GitHubRequestError.httpStatus(404, "pull request #\(number)")
             }
-            for thread in threads.nodes {
-                if thread.firstCommentDatabaseId == id { return thread.id }
+            for thread in threads.nodes where thread.firstCommentNodeID == nodeID {
+                return thread.id
             }
             guard threads.pageInfo.hasPreviousPage, let start = threads.pageInfo.startCursor else {
-                throw GitHubRequestError.decodingFailed("no review thread contains comment \(id)")
+                throw GitHubRequestError.decodingFailed("no review thread contains comment \(nodeID)")
             }
             cursor = start
         }
+    }
+
+    /// The PR number a `PRRT_…` thread lives on — `postNote`/`resolveThread` verify it
+    /// against the caller's `iid` before mutating, since node ids are global across PRs.
+    /// `nil` when the id isn't a review thread at all (e.g. an issue comment node).
+    func threadPullRequestNumber(_ threadID: String) async throws -> Int? {
+        struct Data: Decodable {
+            struct Node: Decodable {
+                struct PullRequest: Decodable { let number: Int }
+                let pullRequest: PullRequest?
+            }
+            let node: Node?
+        }
+        let data: Data = try await graphql(Self.threadPRQuery, variables: ["id": .string(threadID)])
+        return data.node?.pullRequest?.number
     }
 
     /// `addPullRequestReviewThreadReply` — reply inside a `PRRT_…` thread.
@@ -225,7 +275,6 @@ struct GitHubClient: Sendable {
                 nodes {
                   id
                   isResolved
-                  isOutdated
                   path
                   line
                   originalLine
@@ -254,10 +303,18 @@ struct GitHubClient: Sendable {
                 pageInfo { hasNextPage endCursor hasPreviousPage startCursor }
                 nodes {
                   id
-                  comments(first: 1) { nodes { databaseId } }
+                  comments(first: 1) { nodes { id } }
                 }
               }
             }
+          }
+        }
+        """
+
+    private static let threadPRQuery = """
+        query ReviewThreadPR($id: ID!) {
+          node(id: $id) {
+            ... on PullRequestReviewThread { pullRequest { number } }
           }
         }
         """
@@ -282,6 +339,25 @@ struct GitHubClient: Sendable {
         }
         """
 
+    /// `repos/{owner}/{repo}/{suffix}` — throws ``invalidProjectPath`` when the
+    /// config carried no usable project (`whoami` legitimately runs without one).
+    private func repoPath(_ suffix: String) throws -> String {
+        let scope = try repoScope()
+        return "repos/\(scope.owner)/\(scope.repo)/\(suffix)"
+    }
+
+    private func repoScope() throws -> (owner: String, repo: String) {
+        guard let owner, let repo else {
+            throw GitHubRequestError.invalidProjectPath(projectPath)
+        }
+        return (owner, repo)
+    }
+
+    /// `owner/repo` as GitHub spells it — for matching `head.repo.full_name` on PRs.
+    var repoFullName: String? {
+        owner.flatMap { o in repo.map { "\(o)/\($0)" } }
+    }
+
     /// `GET`/`POST`/`PATCH` against the REST API. Non-2xx → `.httpStatus` with GitHub's
     /// `message`; decode failure → `.decodingFailed`.
     private func request<Response: Decodable>(
@@ -291,7 +367,15 @@ struct GitHubClient: Sendable {
         var components = URLComponents(url: api, resolvingAgainstBaseURL: false)!
         components.path += "/" + path
         if !query.isEmpty { components.queryItems = query }
-        var urlRequest = URLRequest(url: components.url!)
+        return try await perform(method, url: components.url!, body: body)
+    }
+
+    /// One HTTP round-trip against an absolute URL — REST paths resolve against
+    /// ``api``; GraphQL posts to ``graphqlURL`` (a different path on GHES).
+    private func perform<Response: Decodable>(
+        _ method: String, url: URL, body: (any Encodable)? = nil
+    ) async throws -> Response {
+        var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
         urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -315,12 +399,12 @@ struct GitHubClient: Sendable {
         }
     }
 
-    /// `POST {api}/graphql` — `data` on success, `.graphql` on `errors[]`.
+    /// `POST` to ``graphqlURL`` — `data` on success, `.graphql` on `errors[]`.
     private func graphql<Response: Decodable>(
         _ query: String, variables: [String: JSONValue]
     ) async throws -> Response {
-        let envelope: GraphQLEnvelope<Response> = try await request(
-            "POST", "graphql", body: GraphQLPayload(query: query, variables: variables)
+        let envelope: GraphQLEnvelope<Response> = try await perform(
+            "POST", url: graphqlURL, body: GraphQLPayload(query: query, variables: variables)
         )
         if let errors = envelope.errors, !errors.isEmpty {
             throw GitHubRequestError.graphql(
@@ -376,6 +460,12 @@ struct GHPullRequest: Decodable {
     struct Branch: Decodable {
         let ref: String
         let sha: String
+        /// `null` when the head fork was deleted — such PRs can't match a local branch.
+        let repo: Repo?
+    }
+    /// Just enough of a repository to compare `full_name` (`owner/repo`).
+    struct Repo: Decodable {
+        let full_name: String
     }
     let number: Int
     let state: String
@@ -407,6 +497,16 @@ struct GHReviewComment: Decodable {
     let id: Int64
     let node_id: String
     let html_url: String
+}
+
+/// `GET /pulls/{n}/reviews` — a submitted review; `body` is its review-level summary.
+struct GHReview: Decodable {
+    let id: Int64
+    let node_id: String
+    let body: String?
+    let state: String
+    let submitted_at: String?
+    let user: GHActor?
 }
 
 struct GHCommentBody: Encodable {
@@ -448,7 +548,6 @@ struct GHCommentNodes<T: Decodable>: Decodable {
 struct GHReviewThread: Decodable {
     let id: String
     let isResolved: Bool
-    let isOutdated: Bool
     let path: String?
     let line: Int?
     let originalLine: Int?
@@ -456,9 +555,6 @@ struct GHReviewThread: Decodable {
     /// `PullRequestReviewComment` has no side field (verified against the schema).
     let diffSide: String?
     let comments: GHCommentNodes<GHReviewThreadComment>
-
-    /// The thread's first-comment databaseId, for the thread-id lookup query.
-    var firstCommentDatabaseId: Int64? { comments.nodes.first?.databaseId }
 }
 
 struct GHReviewThreadComment: Decodable {
@@ -485,12 +581,12 @@ struct GHThreadNodeID: Decodable {
     let id: String
     let comments: GHCommentNodes<GHThreadCommentID>
 
-    /// The thread's first-comment databaseId — our just-posted comment opens the thread.
-    var firstCommentDatabaseId: Int64? { comments.nodes.first?.databaseId }
+    /// The thread's first comment's node id — our just-posted comment opens the thread.
+    var firstCommentNodeID: String? { comments.nodes.first?.id }
 }
 
 struct GHThreadCommentID: Decodable {
-    let databaseId: Int64
+    let id: String
 }
 
 struct GHThreadIDsData: Decodable {
