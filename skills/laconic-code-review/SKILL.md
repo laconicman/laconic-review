@@ -50,13 +50,14 @@ Delegate resolution to the connector (it owns the forge — project path, encodi
 laconic-review resolve "<branch>" --base "<base>" --json
 ```
 
-It returns the `iid` of the single open MR/PR for the branch, or the candidates otherwise. Apply this decision tree:
+It returns the `iid` of the single open MR/PR for the branch, or the candidates otherwise. Candidates carry a `fromFork` flag when the PR's head branch lives on a fork rather than the cloned repo. Apply this decision tree:
 
 | Situation | Action |
 |---|---|
 | Current branch is `develop` / `main` / `master` | **Confirm with the user.** It's a base branch — ask whether to review a specific open MR/PR or do a "what's new on `develop`" pre-review. |
-| Exactly one open MR/PR for this branch | Use its `iid`. Proceed silently. |
-| Multiple open MR/PRs for this branch | Pick the most recently updated; note in the report's TL;DR which one. |
+| Exactly one open MR/PR for this branch, same repo | Use its `iid`. Proceed silently. |
+| Any candidate has `fromFork: true` | **List the candidates and ask the user** which to review — or proceed as a pre-review. A fork PR's branch name can collide with yours; never pick a fork PR automatically, even when it's the only candidate. |
+| Multiple open MR/PRs for this branch, none from a fork | Pick the most recently updated; note in the report's TL;DR which one. |
 | Only merged/closed MR/PRs | **Confirm with the user.** Reviewing a merged conversation is rarely the intent — ask, or proceed as a pre-review. |
 | No MR/PR of any state | Proceed as a pre-review: `iid=0` in the anchor. |
 | User named an MR/PR explicitly ("review MR 967", "review PR 42") | Use it directly; skip resolution. |

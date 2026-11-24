@@ -62,8 +62,9 @@ public struct GitHubConnection: Sendable, ReviewHost {
     /// review comments need (`commit_id` = head).
     public func mergeRequest(iid: Int) async throws -> (summary: MergeRequestSummary, diffRefs: DiffRefs) {
         let pr = try await client.pullRequest(iid)
+        let scope = client.repoFullName?.lowercased()
         return (
-            Self.summary(pr),
+            Self.summary(pr, fromFork: pr.head.repo?.full_name.lowercased() != scope),
             DiffRefs(baseSha: pr.base.sha, headSha: pr.head.sha, startSha: nil)
         )
     }
@@ -173,12 +174,14 @@ public struct GitHubConnection: Sendable, ReviewHost {
     }
 
     /// Thread node ids are global across PRs — and PR numbers repeat across repos —
-    /// so a copied id would otherwise mutate a thread elsewhere. One extra
-    /// `node(id:)` query per call verifies both the number and `owner/repo`.
+    /// so a copied id would otherwise mutate a thread elsewhere. Ownership is proven
+    /// by the parent PR's *node id*: globally unique and stable across repository
+    /// renames (REST `pulls/{n}` follows renames; a `nameWithOwner` compare wouldn't).
     private func verifyThread(_ discussionID: String, belongsTo iid: Int) async throws {
+        // REST first: an invalid project path fails here, before any GraphQL call.
+        let expected = try await client.pullRequest(iid).node_id
         let pr = try await client.threadPullRequest(discussionID)
-        let scope = client.repoFullName?.lowercased()
-        guard let pr, pr.number == iid, pr.repo.lowercased() == scope else {
+        guard let pr, let theirs = pr.nodeID, let ours = expected, theirs == ours else {
             throw GitHubRequestError.unsupportedOperation(
                 pr.map { "thread \(discussionID) belongs to PR #\($0.number) on \($0.repo), not #\(iid) here" }
                     ?? "`\(discussionID)` isn't a review thread on PR #\(iid)"

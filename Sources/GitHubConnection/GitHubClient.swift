@@ -220,12 +220,14 @@ struct GitHubClient: Sendable {
     }
 
     /// The PR a `PRRT_…` thread lives on — `postNote`/`resolveThread` verify it
-    /// against the caller's `iid` **and** repo before mutating: node ids are global,
-    /// and PR numbers repeat across repositories. `nil` when the id isn't a review
-    /// thread at all (e.g. an issue comment node).
+    /// against the caller's `iid` before mutating: node ids are global, PR numbers
+    /// repeat across repos, and repo names go stale on renames — the PR *node id*
+    /// is the only stable identity. `nil` when the id isn't a review thread at all
+    /// (e.g. an issue comment node).
     struct ThreadPullRequest {
+        let nodeID: String?
         let number: Int
-        /// `owner/name` — compared case-insensitively against the project path.
+        /// `owner/name` — used only for the error message, never for matching.
         let repo: String
     }
 
@@ -234,6 +236,7 @@ struct GitHubClient: Sendable {
             struct Node: Decodable {
                 struct PullRequest: Decodable {
                     struct Repository: Decodable { let nameWithOwner: String? }
+                    let id: String?
                     let number: Int
                     let repository: Repository?
                 }
@@ -245,7 +248,7 @@ struct GitHubClient: Sendable {
         guard let pr = data.node?.pullRequest, let repo = pr.repository?.nameWithOwner else {
             return nil
         }
-        return ThreadPullRequest(number: pr.number, repo: repo)
+        return ThreadPullRequest(nodeID: pr.id, number: pr.number, repo: repo)
     }
 
     /// `addPullRequestReviewThreadReply` — reply inside a `PRRT_…` thread.
@@ -328,7 +331,7 @@ struct GitHubClient: Sendable {
     private static let threadPRQuery = """
         query ReviewThreadPR($id: ID!) {
           node(id: $id) {
-            ... on PullRequestReviewThread { pullRequest { number repository { nameWithOwner } } }
+            ... on PullRequestReviewThread { pullRequest { id number repository { nameWithOwner } } }
           }
         }
         """
@@ -489,6 +492,9 @@ struct GHPullRequest: Decodable {
     let base: Branch
     let html_url: String
     let updated_at: String
+    /// Globally-unique, rename-stable PR identifier — `verifyThread` compares it
+    /// against a thread's parent PR (repo names go stale on renames).
+    let node_id: String?
 }
 
 struct GHPullRequestFile: Decodable {
