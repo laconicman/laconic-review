@@ -29,7 +29,7 @@ public struct HostConfig: Sendable {
 /// exotic GHES hostname just needs the override.
 ///
 /// Resolution order for base URL and project: explicit argument → parsed `origin` remote.
-/// The token is **only** ever read from the environment or the login Keychain — never
+/// The token is **only** ever read from the environment or the default Keychain — never
 /// passed as an argument; its variable defaults per host (`GITLAB_TOKEN` / `GITHUB_TOKEN`)
 /// unless `tokenEnv` overrides, and `tokenKeychain` names a generic-password service tried
 /// when the variable is unset.
@@ -41,7 +41,7 @@ public enum ProjectContext {
     ///   - tokenEnv: Environment variable holding the access token, or `nil` for the
     ///     per-host default.
     ///   - tokenKeychain: Keychain service holding the access token as a generic-password
-    ///     item, tried when the env var is unset, or `nil`.
+    ///     item in the default Keychain, tried when the env var is unset, or `nil`.
     ///   - host: `--host` override, or `nil` to detect from the base URL.
     ///   - directory: Repository directory to inspect (defaults to the current directory).
     public static func resolve(
@@ -194,7 +194,7 @@ public enum ConnectionError: Error, CustomStringConvertible, Equatable {
     public var description: String {
         switch self {
         case .missingToken(let env):
-            return "No access token in environment variable `\(env)`. Export it (e.g. in ~/.zshenv) or pass --token-keychain <service> to read it from the login Keychain."
+            return "No access token in environment variable `\(env)`. Export it (e.g. in ~/.zshenv) or pass --token-keychain <service> to read it from the default Keychain."
         case .cannotResolveBaseURL:
             return "Could not determine the forge URL. Pass --base-url or run inside a git repo with an `origin` remote."
         case .cannotResolveProject:

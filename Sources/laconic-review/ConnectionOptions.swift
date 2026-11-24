@@ -3,7 +3,7 @@ import GitHubConnection
 import GitLabConnection
 import LaconicReviewCore
 
-/// Flags shared by every subcommand. The token comes from the environment or the login
+/// Flags shared by every subcommand. The token comes from the environment or the default
 /// Keychain — never a flag value.
 struct ConnectionOptions: ParsableArguments {
     @Option(help: "Forge project: GitLab id/namespace path or GitHub owner/repo. Default: from `git remote`.")

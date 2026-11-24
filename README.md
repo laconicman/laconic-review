@@ -72,7 +72,7 @@ overrides detection, e.g. for an exotic GHES hostname.
 
 The token is read from the environment — `GITLAB_TOKEN` or `GITHUB_TOKEN` by default,
 `--token-env` overrides — never passed as a flag. When the variable is unset, a
-`--token-keychain <service>` flag reads it instead from the login Keychain (a
+`--token-keychain <service>` flag reads it instead from the default Keychain (a
 generic-password item, e.g. `gitlab.flat.lab`). `--project` and `--base-url` default to
 your `origin` remote.
 

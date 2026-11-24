@@ -2,14 +2,23 @@ import Foundation
 import XCTest
 @testable import LaconicReviewCore
 
-/// End-to-end through the real login Keychain via `/usr/bin/security` — the same
+/// End-to-end through the real default Keychain via `/usr/bin/security` — the same
 /// tool production shells out to, so add/read/delete never prompt. Each test gets a
 /// unique service name; `tearDown` removes whatever the test created.
 final class KeychainTokenTests: XCTestCase {
     private var service = ""
 
-    override func setUp() {
+    override func setUpWithError() throws {
         service = "laconic-review-test-\(UUID().uuidString)"
+        // The suite needs a writable, unlocked Keychain — a locked one (CI sandboxes,
+        // a logged-out session) would fail every test before token resolution runs.
+        let probe = runSecurity([
+            "add-generic-password", "-a", "laconic-review-test", "-s", service, "-w", "probe",
+        ])
+        guard probe.status == 0 else {
+            throw XCTSkip("default Keychain not writable: \(probe.message)")
+        }
+        _ = runSecurity(["delete-generic-password", "-s", service])
     }
 
     override func tearDown() {
