@@ -9,8 +9,10 @@ Read this only when a `laconic-review` call fails on auth (`missingToken` /
    forge), `--token-env <VAR>` overrides the name. An exported var always wins.
 2. **Keychain fallback** — only when the var is unset *or empty*, and only if
    `--token-keychain <service>` was passed. There is no persisted setting:
-   the flag must ride on **every** `laconic-review` call in the review flow
-   (`resolve`, `fetch`, `publish`, `lint`, …).
+   the flag must ride on **every forge-facing** `laconic-review` call
+   (`whoami`, `resolve`, `diff-refs`, `discussions`, `fetch`, `publish`,
+   `reply`, `resolve-thread`). `lint` is offline and takes no connection
+   flags — never pass it there.
 
 ## Keychain item
 
@@ -24,8 +26,9 @@ security add-generic-password -a "$USER" -s <service> -w
 
 - `-a` (account) is required; `$USER` matches the partner-ios convention.
 - Reads are scoped to `security default-keychain` — where the add command
-  writes. If you keep tokens in a different keychain, pass its path or use
-  env vars instead.
+  writes, and the only keychain the lookup ever searches (`<service>` is a
+  name, not a path; there is no flag for another keychain). If your token
+  lives elsewhere, export the env var instead.
 - Verify: `laconic-review whoami --token-keychain <service>`.
 - Locked keychain → "User interaction is not allowed"; unlock via Keychain
   Access or fall back to the env var.

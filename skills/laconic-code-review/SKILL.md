@@ -11,7 +11,7 @@ Produce a senior-engineer review of the current branch's changes versus base. Th
 
 `<N>` is the iteration counter — re-reviews of the same branch get `2.md`, `3.md`, … so the trail is preserved.
 
-> **Prerequisite.** This skill shells out to the `laconic-review` CLI (from the laconic-review package) for the forge-facing steps — resolving the MR/PR, validating, publishing. It must be on `PATH`, with the forge token available — exported (`GITLAB_TOKEN` or `GITHUB_TOKEN`, per the remote's host) or in the default Keychain via `--token-keychain <service>` on every call. One-time token/Keychain setup: `references/token-setup.md`. Everything this skill does itself is provider-neutral; GitLab and GitHub live entirely behind that CLI.
+> **Prerequisite.** This skill shells out to the `laconic-review` CLI (from the laconic-review package) for the forge-facing steps — resolving the MR/PR, validating, publishing. It must be on `PATH`, with the forge token available — exported (`GITLAB_TOKEN` or `GITHUB_TOKEN`, per the remote's host) or in the default Keychain via `--token-keychain <service>` on every forge-facing call. One-time token/Keychain setup: `references/token-setup.md`. Everything this skill does itself is provider-neutral; GitLab and GitHub live entirely behind that CLI.
 
 ## When to trigger
 
