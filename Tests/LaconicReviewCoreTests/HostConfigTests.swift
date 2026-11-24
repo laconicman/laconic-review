@@ -29,6 +29,12 @@ final class HostConfigTests: XCTestCase {
         XCTAssertEqual(parsed, .init(baseURL: "https://gitlab.example.com", projectPath: "group/project"))
     }
 
+    func testParseMixedCaseHTTPSRemoteKeepsPort() {
+        // Schemes are case-insensitive — `HTTPS://` must still be treated as web.
+        let parsed = ProjectContext.parse(remote: "HTTPS://gitlab.example.com:8443/group/project.git")
+        XCTAssertEqual(parsed, .init(baseURL: "https://gitlab.example.com:8443", projectPath: "group/project"))
+    }
+
     func testParseRejectsHostWithoutProject() {
         XCTAssertNil(ProjectContext.parse(remote: "https://github.com"))
         XCTAssertNil(ProjectContext.parse(remote: "not a remote at all"))

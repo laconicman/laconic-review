@@ -219,19 +219,33 @@ struct GitHubClient: Sendable {
         }
     }
 
-    /// The PR number a `PRRT_…` thread lives on — `postNote`/`resolveThread` verify it
-    /// against the caller's `iid` before mutating, since node ids are global across PRs.
-    /// `nil` when the id isn't a review thread at all (e.g. an issue comment node).
-    func threadPullRequestNumber(_ threadID: String) async throws -> Int? {
+    /// The PR a `PRRT_…` thread lives on — `postNote`/`resolveThread` verify it
+    /// against the caller's `iid` **and** repo before mutating: node ids are global,
+    /// and PR numbers repeat across repositories. `nil` when the id isn't a review
+    /// thread at all (e.g. an issue comment node).
+    struct ThreadPullRequest {
+        let number: Int
+        /// `owner/name` — compared case-insensitively against the project path.
+        let repo: String
+    }
+
+    func threadPullRequest(_ threadID: String) async throws -> ThreadPullRequest? {
         struct Data: Decodable {
             struct Node: Decodable {
-                struct PullRequest: Decodable { let number: Int }
+                struct PullRequest: Decodable {
+                    struct Repository: Decodable { let nameWithOwner: String? }
+                    let number: Int
+                    let repository: Repository?
+                }
                 let pullRequest: PullRequest?
             }
             let node: Node?
         }
         let data: Data = try await graphql(Self.threadPRQuery, variables: ["id": .string(threadID)])
-        return data.node?.pullRequest?.number
+        guard let pr = data.node?.pullRequest, let repo = pr.repository?.nameWithOwner else {
+            return nil
+        }
+        return ThreadPullRequest(number: pr.number, repo: repo)
     }
 
     /// `addPullRequestReviewThreadReply` — reply inside a `PRRT_…` thread.
@@ -239,7 +253,7 @@ struct GitHubClient: Sendable {
         struct Data: Decodable {
             struct Payload: Decodable {
                 struct Comment: Decodable {
-                    let databaseId: Int64?
+                    let fullDatabaseId: String?
                     let url: String?
                 }
                 let comment: Comment?
@@ -250,7 +264,7 @@ struct GitHubClient: Sendable {
             "threadId": .string(threadID), "body": .string(body),
         ])
         return GHReplyComment(
-            databaseId: data.addPullRequestReviewThreadReply?.comment?.databaseId,
+            databaseId: data.addPullRequestReviewThreadReply?.comment?.fullDatabaseId,
             url: data.addPullRequestReviewThreadReply?.comment?.url
         )
     }
@@ -280,7 +294,7 @@ struct GitHubClient: Sendable {
                   originalLine
                   diffSide
                   comments(first: 100) { nodes {
-                    databaseId
+                    fullDatabaseId
                     body
                     createdAt
                     author { login }
@@ -314,7 +328,7 @@ struct GitHubClient: Sendable {
     private static let threadPRQuery = """
         query ReviewThreadPR($id: ID!) {
           node(id: $id) {
-            ... on PullRequestReviewThread { pullRequest { number } }
+            ... on PullRequestReviewThread { pullRequest { number repository { nameWithOwner } } }
           }
         }
         """
@@ -322,7 +336,7 @@ struct GitHubClient: Sendable {
     private static let replyMutation = """
         mutation ReplyToReviewThread($threadId: ID!, $body: String!) {
           addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
-            comment { databaseId url }
+            comment { fullDatabaseId url }
           }
         }
         """
@@ -522,8 +536,12 @@ struct GHReviewCommentBody: Encodable {
 }
 
 struct GHReplyComment {
-    let databaseId: Int64?
+    /// `fullDatabaseId` arrives as a BigInt — a JSON string, since GraphQL `Int`
+    /// caps at 32 bits and REST comment ids already exceed that.
+    let databaseId: String?
     let url: String?
+
+    var noteID: Int64? { databaseId.flatMap { Int64($0) } }
 }
 
 // GraphQL shapes — the queries above select exactly these fields.
@@ -558,7 +576,8 @@ struct GHReviewThread: Decodable {
 }
 
 struct GHReviewThreadComment: Decodable {
-    let databaseId: Int64
+    /// BigInt scalar — serialized as a JSON string (GraphQL `Int` is 32-bit).
+    let fullDatabaseId: String?
     let body: String
     let createdAt: String
     let author: GHActor?

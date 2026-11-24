@@ -32,16 +32,18 @@ public enum MergeRequestResolver {
             return .ambiguous(reason: .branchIsBase, candidates: topOpen(mergeRequests))
         }
         let open = mergeRequests.filter { $0.state == .opened }
-        switch open.count {
-        case 1:
+        // Auto-resolve only a sole *same-repo* candidate: a fork PR with a matching
+        // branch name is never picked silently — it stays an explicit choice.
+        let sameRepo = open.filter { !$0.fromFork }
+        if sameRepo.count == 1 && open.count == 1 {
             return .resolved(iid: open[0].iid)
-        case 0:
+        }
+        if open.isEmpty {
             return mergeRequests.isEmpty
                 ? .none
                 : .ambiguous(reason: .onlyClosedOrMerged, candidates: topOpen(mergeRequests))
-        default:
-            return .ambiguous(reason: .multipleOpen, candidates: topOpen(open))
         }
+        return .ambiguous(reason: .multipleOpen, candidates: topOpen(open))
     }
 
     /// Up to five open MRs, most-recently-updated first.

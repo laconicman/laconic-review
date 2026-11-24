@@ -41,18 +41,19 @@ public struct GitHubConnection: Sendable, ReviewHost {
     }
 
     /// `GET /repos/{o}/{r}/pulls?state=all` — every PR for a branch, any state.
-    /// Filters client-side on `head.ref` **and** `head.repo.full_name`: a same-named
-    /// branch on another fork is a different PR, not this clone's.
+    /// Filters client-side on `head.ref` across *all* head repos: a fork PR is a
+    /// legitimate candidate but flagged `fromFork`, so the resolver never picks it
+    /// silently over an unknown same-named branch.
     public func mergeRequests(sourceBranch: String) async throws -> [MergeRequestSummary] {
         guard let scope = client.repoFullName?.lowercased() else {
             throw GitHubRequestError.invalidProjectPath(client.projectPath)
         }
-        // GitHub paths are case-insensitive — a remote cloned with different casing
-        // must still match `head.repo.full_name`.
         return try await client.pullRequests().compactMap { pr in
-            pr.head.ref == sourceBranch
-                && pr.head.repo?.full_name.lowercased() == scope
-                ? Self.summary(pr) : nil
+            guard pr.head.ref == sourceBranch else { return nil }
+            return Self.summary(
+                pr,
+                fromFork: pr.head.repo?.full_name.lowercased() != scope
+            )
         }
     }
 
@@ -155,7 +156,7 @@ public struct GitHubConnection: Sendable, ReviewHost {
         let reply = try await client.addThreadReply(threadID: discussionID, body: body)
         return PostedDiscussion(
             discussionID: discussionID,
-            noteID: reply.databaseId.map(Int.init),
+            noteID: reply.noteID.map(Int.init),
             url: reply.url
         )
     }
@@ -171,13 +172,15 @@ public struct GitHubConnection: Sendable, ReviewHost {
         try await client.setThreadResolved(threadID: discussionID, resolved: resolved)
     }
 
-    /// Thread node ids are global across PRs — a copied id would otherwise mutate a
-    /// thread on the wrong pull request. One extra `node(id:)` query per call.
+    /// Thread node ids are global across PRs — and PR numbers repeat across repos —
+    /// so a copied id would otherwise mutate a thread elsewhere. One extra
+    /// `node(id:)` query per call verifies both the number and `owner/repo`.
     private func verifyThread(_ discussionID: String, belongsTo iid: Int) async throws {
-        let number = try await client.threadPullRequestNumber(discussionID)
-        guard number == iid else {
+        let pr = try await client.threadPullRequest(discussionID)
+        let scope = client.repoFullName?.lowercased()
+        guard let pr, pr.number == iid, pr.repo.lowercased() == scope else {
             throw GitHubRequestError.unsupportedOperation(
-                number.map { "thread \(discussionID) belongs to PR #\($0), not #\(iid)" }
+                pr.map { "thread \(discussionID) belongs to PR #\($0.number) on \($0.repo), not #\(iid) here" }
                     ?? "`\(discussionID)` isn't a review thread on PR #\(iid)"
             )
         }
@@ -223,7 +226,7 @@ public struct GitHubConnection: Sendable, ReviewHost {
         discussionID.hasPrefix("PRRT_")
     }
 
-    static func summary(_ pr: GHPullRequest) -> MergeRequestSummary {
+    static func summary(_ pr: GHPullRequest, fromFork: Bool = false) -> MergeRequestSummary {
         MergeRequestSummary(
             iid: pr.number,
             state: pr.state == "open" ? .opened : (pr.merged_at != nil ? .merged : .closed),
@@ -231,7 +234,8 @@ public struct GitHubConnection: Sendable, ReviewHost {
             sourceBranch: pr.head.ref,
             targetBranch: pr.base.ref,
             webURL: pr.html_url,
-            updatedAt: date(pr.updated_at)
+            updatedAt: date(pr.updated_at),
+            fromFork: fromFork
         )
     }
 
@@ -246,7 +250,7 @@ public struct GitHubConnection: Sendable, ReviewHost {
 
     static func note(_ c: GHReviewThreadComment, thread t: GHReviewThread) -> ThreadNote {
         ThreadNote(
-            id: c.databaseId,
+            id: c.fullDatabaseId.flatMap { Int64($0) } ?? -1,
             author: c.author?.login ?? "",
             username: c.author?.login ?? "",
             createdAt: date(c.createdAt),
