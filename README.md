@@ -71,13 +71,18 @@ everything else stays GitLab (self-managed included). `--host github|gitlab`
 overrides detection, e.g. for an exotic GHES hostname.
 
 The token is read from the environment — `GITLAB_TOKEN` or `GITHUB_TOKEN` by default,
-`--token-env` overrides — never passed as a flag. `--project` and `--base-url` default to
+`--token-env` overrides — never passed as a flag. When the variable is unset, a
+`--token-keychain <service>` flag reads it instead from the default Keychain (a
+generic-password item, e.g. `gitlab.flat.lab`). `--project` and `--base-url` default to
 your `origin` remote.
 
 ```bash
 export GITHUB_TOKEN="ghp_…"          # or GITLAB_TOKEN="glpat-…"
+# …or skip the export entirely and keep the token in the Keychain:
+#   security add-generic-password -a "$USER" -s gitlab.flat.lab -w
 
 laconic-review whoami
+laconic-review whoami --token-keychain gitlab.flat.lab
 laconic-review resolve fix/logout-sometimes/FPM-1653 --base develop
 laconic-review diff-refs 965         # or 42 on GitHub — iid is the MR/PR number either way
 laconic-review discussions 965       # 120-char previews — quick scan

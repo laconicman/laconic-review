@@ -79,4 +79,52 @@ final class HostConfigTests: XCTestCase {
         XCTAssertEqual(ReviewHostKind.github.defaultTokenEnv, "GITHUB_TOKEN")
         XCTAssertEqual(ReviewHostKind.gitlab.defaultTokenEnv, "GITLAB_TOKEN")
     }
+
+    // MARK: - token resolution
+
+    func testTokenPrefersEnvironmentOverKeychain() throws {
+        // The env var wins; the bogus Keychain service proves it is never consulted —
+        // a lookup would throw `itemNotFound`.
+        let token = try ProjectContext.resolveToken(
+            env: "LACONIC_REVIEW_TEST_TOKEN",
+            keychainService: "laconic-review-definitely-missing",
+            environment: ["LACONIC_REVIEW_TEST_TOKEN": "env-token"]
+        )
+        XCTAssertEqual(token, "env-token")
+    }
+
+    func testTokenMissingEverywhereThrows() {
+        XCTAssertThrowsError(
+            try ProjectContext.resolveToken(
+                env: "LACONIC_REVIEW_TEST_TOKEN", keychainService: nil, environment: [:]
+            )
+        ) { error in
+            XCTAssertEqual(error as? ConnectionError, .missingToken(env: "LACONIC_REVIEW_TEST_TOKEN"))
+        }
+    }
+
+    func testTokenEmptyEnvironmentCountsAsUnset() {
+        XCTAssertThrowsError(
+            try ProjectContext.resolveToken(
+                env: "LACONIC_REVIEW_TEST_TOKEN",
+                keychainService: nil,
+                environment: ["LACONIC_REVIEW_TEST_TOKEN": ""]
+            )
+        )
+    }
+
+    func testTokenFallsBackToKeychainAndReportsMissingItem() {
+        XCTAssertThrowsError(
+            try ProjectContext.resolveToken(
+                env: "LACONIC_REVIEW_TEST_TOKEN",
+                keychainService: "laconic-review-definitely-missing",
+                environment: [:]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? KeychainTokenError,
+                .itemNotFound(service: "laconic-review-definitely-missing")
+            )
+        }
+    }
 }
