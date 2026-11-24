@@ -155,7 +155,8 @@ final class GitHubConnectionTests: XCTestCase {
                 + pullRequestJSON(number: 7, state: "open", headRef: "feat/x") + ","
                 + pullRequestJSON(number: 8, state: "closed", mergedAt: "2026-01-01T00:00:00Z", headRef: "feat/x") + ","
                 + pullRequestJSON(number: 9, state: "closed", headRef: "other") + ","
-                + pullRequestJSON(number: 10, state: "closed", headRef: "feat/x") + ","
+                // Different casing still matches — GitHub paths are case-insensitive.
+                + pullRequestJSON(number: 10, state: "closed", headRef: "feat/x", headRepo: "Octo/Repo") + ","
                 // Same branch name on another fork — a different PR, must not match.
                 + pullRequestJSON(number: 11, state: "open", headRef: "feat/x", headRepo: "evil/repo") + ","
                 // Deleted fork: head.repo is null — can't be this clone's PR.

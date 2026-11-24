@@ -44,11 +44,14 @@ public struct GitHubConnection: Sendable, ReviewHost {
     /// Filters client-side on `head.ref` **and** `head.repo.full_name`: a same-named
     /// branch on another fork is a different PR, not this clone's.
     public func mergeRequests(sourceBranch: String) async throws -> [MergeRequestSummary] {
-        guard let scope = client.repoFullName else {
+        guard let scope = client.repoFullName?.lowercased() else {
             throw GitHubRequestError.invalidProjectPath(client.projectPath)
         }
+        // GitHub paths are case-insensitive — a remote cloned with different casing
+        // must still match `head.repo.full_name`.
         return try await client.pullRequests().compactMap { pr in
-            pr.head.ref == sourceBranch && pr.head.repo?.full_name == scope
+            pr.head.ref == sourceBranch
+                && pr.head.repo?.full_name.lowercased() == scope
                 ? Self.summary(pr) : nil
         }
     }
