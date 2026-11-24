@@ -2,20 +2,20 @@ import ArgumentParser
 import Foundation
 import LaconicReviewCore
 
-/// Publish open findings from a review report to the MR as discussions.
+/// Publish open findings from a review report to the MR/PR as discussions.
 ///
-/// Dry-run by default (offline: parse + ledger only); pass `--confirm` to fetch `diff_refs`
-/// and actually post. Idempotent — findings already in `<N>.published.json` are skipped.
+/// Dry-run by default (offline: parse + ledger only); pass `--confirm` to fetch the diff
+/// refs and actually post. Idempotent — findings already in `<N>.published.json` are skipped.
 struct PublishCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "publish",
-        abstract: "Publish open findings from a review report to the MR (dry-run unless --confirm)."
+        abstract: "Publish open findings from a review report (dry-run unless --confirm)."
     )
 
     @Argument(help: "Path to the review report markdown (e.g. .claude/reviews/<branch>/1.md).")
     var report: String
 
-    @Flag(help: "Actually post to GitLab. Without it, prints the plan (dry-run, offline).")
+    @Flag(help: "Actually post to the forge. Without it, prints the plan (dry-run, offline).")
     var confirm = false
 
     @OptionGroup var options: ConnectionOptions
@@ -42,7 +42,7 @@ struct PublishCommand: AsyncParsableCommand {
 
         // Dry run stays offline — no connection, no token, no network.
         guard confirm else {
-            print("DRY RUN — \(pending.count) finding(s) would post to MR !\(iid); "
+            print("DRY RUN — \(pending.count) finding(s) would post to \(refLabel(options.detectKind(), iid)); "
                 + "\(skipped) skipped (already published or not open). Re-run with --confirm.\n")
             for finding in pending {
                 print("  • [\(finding.scope.rawValue)] \(finding.id) → \(Self.location(finding))")
@@ -50,11 +50,11 @@ struct PublishCommand: AsyncParsableCommand {
             return
         }
 
-        // Confirmed: diff_refs is the server's truth for `position`, fetched fresh now —
-        // and the MR diffs that tell added lines from context lines (which need both
-        // `old_*` and `new_*` coordinates, or GitLab answers `badRequest`). The two
-        // reads must describe the same revision: re-check the head SHA after the diff
-        // fetch and refetch once if a push landed in between.
+        // Confirmed: the diff refs are the server's truth for the anchor's base commit,
+        // fetched fresh now — and the diffs that tell added lines from context lines
+        // (which need both `old_*` and `new_*` coordinates). The two reads must describe
+        // the same revision: re-check the head SHA after the diff fetch and refetch once
+        // if a push landed in between.
         let connection = try options.makeConnection()
         var fetched = try await connection.mergeRequest(iid: iid)
         var lineMaps = DiffParser.lineMaps(for: try await connection.mergeRequestDiffs(iid: iid))
@@ -72,7 +72,7 @@ struct PublishCommand: AsyncParsableCommand {
         // stamped-but-mismatched head_sha also means in-hunk anchors may be stale.
         let revisionVerified = parsed.header.matchesHead(diffRefs.headSha)
         if let stamped = parsed.header.headSha, stamped != diffRefs.headSha {
-            print("  ⚠ report head_sha \(stamped) ≠ MR head \(diffRefs.headSha ?? "?") — "
+            print("  ⚠ report head_sha \(stamped) ≠ head \(diffRefs.headSha ?? "?") — "
                 + "line anchors may be stale; refresh the review before trusting them")
         }
 
@@ -115,7 +115,7 @@ struct PublishCommand: AsyncParsableCommand {
                 print("  ⚠ \(finding.id): inferred anchor rejected — posted as a general note")
             }
             let result = outcome.result
-            let url = result.noteID.flatMap { id in mr.webURL.map { "\($0)#note_\(id)" } }
+            let url = connection.noteURL(for: result, mergeRequestWebURL: mr.webURL)
             ledger.record(finding.id, PublishedThread(
                 discussionID: result.discussionID, noteID: result.noteID, url: url, resolvedLinks: resolved
             ))
@@ -165,12 +165,12 @@ struct PublishCommand: AsyncParsableCommand {
             + ". Ledger: \(ledgerURL.lastPathComponent)")
         var problems: [String] = []
         if !failed.isEmpty {
-            // A transport/decoding failure can throw after GitLab already committed the
+            // A transport/decoding failure can throw after the forge already committed the
             // discussion — the thread exists but the ledger doesn't know it, so a blind
             // re-run could double-post. Say so instead of implying a clean retry.
             problems.append(
                 "\(failed.count) finding(s) failed to publish — a failure may still have "
-                + "landed server-side; check the MR, then re-run with --confirm to retry "
+                + "landed server-side; check the \(refLabel(connection.kind, iid)), then re-run with --confirm to retry "
                 + "(posted findings are skipped): "
                 + failed.map { "\($0.id) (\($0.reason))" }.joined(separator: "; ")
             )
@@ -199,20 +199,20 @@ struct PublishCommand: AsyncParsableCommand {
     }
 
     /// Post one finding. An inferred out-of-hunk anchor can still be rejected —
-    /// GitLab unfolds blob lines under size caps — so on a *definite* 400 (the
-    /// server answered; nothing was posted) retry once as a general note rather
-    /// than lose the finding. Transport errors are never retried: the post may
-    /// already have landed, and a retry could double-post.
+    /// the forge unfolds blob lines under size caps — so on a *definite* position
+    /// rejection (the server answered; nothing was posted) retry once as a general
+    /// note rather than lose the finding. Transport errors are never retried: the
+    /// post may already have landed, and a retry could double-post.
     private static func postFinding(
         iid: Int, body: String, anchor: ResolvedPosition?,
-        diffRefs: DiffRefs, connection: GitLabConnection
+        diffRefs: DiffRefs, connection: any ReviewHost
     ) async throws -> (result: PostedDiscussion, anchorRejected: Bool) {
         do {
             return (try await connection.postDiscussion(
                 iid: iid, body: body, position: anchor, diffRefs: diffRefs
             ), false)
         } catch {
-            guard DiscussionPostError.shouldFallbackToGeneralNote(error: error, anchor: anchor)
+            guard connection.shouldFallbackToGeneralNote(error: error, anchor: anchor)
             else { throw error }
             return (try await connection.postDiscussion(
                 iid: iid, body: body, position: nil, diffRefs: diffRefs

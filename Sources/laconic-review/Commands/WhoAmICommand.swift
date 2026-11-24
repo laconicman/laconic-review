@@ -1,11 +1,11 @@
 import ArgumentParser
 import LaconicReviewCore
 
-/// Verify the token and show the current GitLab identity (`GET /user`).
+/// Verify the token and show the current forge identity (`GET /user`).
 struct WhoAmICommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "whoami",
-        abstract: "Verify the token and print the current GitLab identity."
+        abstract: "Verify the token and print the current forge identity."
     )
 
     @OptionGroup var options: ConnectionOptions

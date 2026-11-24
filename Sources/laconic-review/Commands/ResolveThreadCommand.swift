@@ -2,14 +2,14 @@ import ArgumentParser
 import Foundation
 import LaconicReviewCore
 
-/// Resolve (or unresolve) a published finding's MR discussion thread.
+/// Resolve (or unresolve) a published finding's review thread.
 ///
-/// Looks the finding up in `<N>.published.json` to find its discussion id. Dry-run by default;
-/// pass `--confirm` to actually update GitLab.
+/// Looks the finding up in `<N>.published.json` to find its thread id. Dry-run by default;
+/// pass `--confirm` to actually update the forge.
 struct ResolveThreadCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-thread",
-        abstract: "Mark a published finding's MR thread resolved (dry-run unless --confirm)."
+        abstract: "Mark a published finding's thread resolved (dry-run unless --confirm)."
     )
 
     @Argument(help: "Path to the review report markdown (locates the publish ledger).")
@@ -21,7 +21,7 @@ struct ResolveThreadCommand: AsyncParsableCommand {
     @Flag(help: "Unresolve instead of resolve.")
     var unresolve = false
 
-    @Flag(help: "Actually update GitLab. Without it, prints the plan (dry-run).")
+    @Flag(help: "Actually update the forge. Without it, prints the plan (dry-run).")
     var confirm = false
 
     @OptionGroup var options: ConnectionOptions
@@ -38,7 +38,7 @@ struct ResolveThreadCommand: AsyncParsableCommand {
         let verb = resolved ? "resolve" : "unresolve"
 
         guard confirm else {
-            print("DRY RUN — would \(verb) \(finding) (discussion \(thread.discussionID)) on MR !\(header.iid). Re-run with --confirm.")
+            print("DRY RUN — would \(verb) \(finding) (thread \(thread.discussionID)) on \(refLabel(options.detectKind(), header.iid)). Re-run with --confirm.")
             return
         }
         try await options.makeConnection().resolveThread(

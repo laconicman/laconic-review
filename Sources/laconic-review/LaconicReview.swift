@@ -1,15 +1,16 @@
 import ArgumentParser
 
-/// `laconic-review` — read and publish code-review findings against a GitLab MR.
+/// `laconic-review` — read and publish code-review findings against a merge request
+/// or pull request.
 ///
-/// Read commands resolve/inspect an MR; `publish` posts a report's findings as discussions and
-/// `resolve-thread` resolves them — both dry-run unless `--confirm`.
+/// Read commands resolve/inspect the review target; `publish` posts a report's findings
+/// as discussions and `resolve-thread` resolves them — both dry-run unless `--confirm`.
 @main
 struct LaconicReview: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "laconic-review",
-        abstract: "Read and publish code-review findings to a GitLab merge request.",
-        version: "0.2.0",
+        abstract: "Read and publish code-review findings to a merge request / pull request.",
+        version: "0.3.0",
         subcommands: [
             WhoAmICommand.self,
             ResolveCommand.self,

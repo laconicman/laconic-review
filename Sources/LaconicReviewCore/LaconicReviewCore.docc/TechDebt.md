@@ -51,15 +51,17 @@ reader most likely to be there is the author, mid-round.
 
 **Discharge.** <doc:Roadmap> item 2.
 
-### TD-5 — GitHub is unsupported · deferred
+### TD-5 — GitHub is unsupported · discharged
 
-``GitLabConnection`` is the only seam, by design.
+``GitHubConnection`` is the second ``ReviewHost`` seam <doc:Design> anticipated:
+a hand-written URLSession REST+GraphQL client (review threads, replies, and
+resolve/unresolve exist only in GraphQL), `github.com` → `api.github.com`, GHES →
+`{host}/api/v3`. Host detection lives in ``HostConfig`` — `git remote` host,
+`--host` override, `GITHUB_TOKEN` default.
 
-**Cost.** The conventions worth adopting from Devin Review were all observed on GitHub,
-and cannot be exercised here until a GitHub connection exists.
-
-**Deferred** until there is a GitHub review to run against; the neutral core means this is
-an addition, not a rewrite.
+**Cost.** Unit-tested against a stubbed transport only — no live run against
+github.com or GHES yet; the GraphQL selections follow the documented schema, not
+observed responses.
 
 ### TD-6 — `publish` aborts the batch on the first bad position · discharged
 

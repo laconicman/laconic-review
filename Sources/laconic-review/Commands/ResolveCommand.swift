@@ -1,23 +1,25 @@
 import ArgumentParser
 import LaconicReviewCore
 
-/// Resolve the merge request for a branch via the decision tree → an iid, `none`, or candidates.
+/// Resolve the merge request / pull request for a branch via the decision tree → an iid,
+/// `none`, or candidates.
 struct ResolveCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve",
-        abstract: "Resolve the merge request for a branch (one open MR → its iid; else candidates)."
+        abstract: "Resolve the MR/PR for a branch (one open → its iid; else candidates)."
     )
 
     @Argument(help: "Source branch to resolve.")
     var branch: String
 
-    @Option(name: .customLong("base"), help: "Base branch the MR targets.")
+    @Option(name: .customLong("base"), help: "Base branch the MR/PR targets.")
     var base: String = "develop"
 
     @OptionGroup var options: ConnectionOptions
 
     func run() async throws {
-        let mergeRequests = try await options.makeConnection().mergeRequests(sourceBranch: branch)
+        let connection = try options.makeConnection()
+        let mergeRequests = try await connection.mergeRequests(sourceBranch: branch)
         let resolution = MergeRequestResolver.resolve(branch: branch, base: base, mergeRequests: mergeRequests)
 
         if options.json {
@@ -27,15 +29,15 @@ struct ResolveCommand: AsyncParsableCommand {
 
         switch resolution {
         case .resolved(let iid):
-            print("✓ MR !\(iid)")
+            print("✓ \(refLabel(connection.kind, iid))")
         case .none:
-            print("no-mr (pre-MR review)")
+            print("no-mr (pre-review)")
         case .ambiguous(let reason, let candidates):
             print("ambiguous: \(reason.rawValue)")
             for mr in candidates {
-                print("  !\(mr.iid)  \(mr.title)")
+                print("  \(refLabel(connection.kind, mr.iid))  \(mr.title)")
             }
-            if candidates.isEmpty { print("  (no open MRs)") }
+            if candidates.isEmpty { print("  (no open MRs/PRs)") }
         }
     }
 }

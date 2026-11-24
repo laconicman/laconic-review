@@ -10,7 +10,9 @@ Priority-ordered. Rationale lives in <doc:Design>; costs and discharges in <doc:
 
 - **The markdown SSOT and its parser.** One human-editable report, machine fields in
   HTML-comment anchors, SHAs never persisted.
-- **Idempotent publishing to GitLab**, with a ledger so re-runs are safe.
+- **Idempotent publishing to GitLab and GitHub**, with a ledger so re-runs are safe.
+- **GitHub pull requests** — ``GitHubConnection`` (hand-written REST+GraphQL) behind the
+  same ``ReviewHost`` seam; the forge is detected from `git remote`, `--host` overrides.
 - **`lint`** — severity/status vocabulary, dangling cross-links, leaked `##`, and the
   id-prefix/severity birth rule.
 - **Iterations** — ids carried forward, `status=closed` with a verification line.
@@ -108,7 +110,8 @@ This one needs **no contract change** — it is a rubric rule.
 Where the fix is a single line, Devin emits a fenced ` ```suggestion ` block the platform
 renders as appliable. One of the 25 arrived that way and was applied verbatim.
 
-GitLab supports the same syntax, so this is a rubric rule plus a note in the publish path.
+Both forges render ```suggestion blocks, so this is a rubric rule plus a note in the
+publish path.
 
 ### 6. A resolution reply that names the fix
 
@@ -121,8 +124,9 @@ on exactly this signal.
 
 ## Later
 
-- A second connection type for GitHub, as <doc:Design> anticipates. Devin's conventions
-  are GitHub-shaped; adopting them is easier if both providers exist.
+- Exercise the Devin-Review conventions (the items above) against a real GitHub pull
+  request now that ``GitHubConnection`` exists — the unit tests stub the transport;
+  nothing has run against github.com or a GHES instance yet.
 
 ## Not being built
 

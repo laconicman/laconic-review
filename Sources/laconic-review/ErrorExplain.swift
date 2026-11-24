@@ -9,7 +9,7 @@ public enum ErrorExplain {
         guard let e = error as? ClientError else { return String(describing: error) }
         switch e.underlyingError {
         case let d as DecodingError:
-            return "\(e.operationID): response decoding failed — \(decoding(d)) — likely spec drift, check GitLabKit's openapi.yaml"
+            return "\(e.operationID): response decoding failed — \(decoding(d)) — likely spec drift, check the generated client's spec"
         case let u as URLError:
             return "\(e.operationID): network error — \(u.localizedDescription)"
         case let other:

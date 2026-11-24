@@ -16,7 +16,7 @@ public enum InboxRenderer {
         let resolved = inbox.resolvedCount
         out.append("<!-- inbox iid=\(inbox.iid) branch=\(inbox.branch) fetched_at=\(iso8601(inbox.fetchedAt)) open=\(open) resolved=\(resolved) -->")
         out.append("")
-        out.append("# Inbox — MR !\(inbox.iid) «\(inbox.title)»")
+        out.append("# Inbox — \(inbox.kind.refLabel(inbox.iid)) «\(inbox.title)»")
         out.append("")
         var summary = "\(open) open · \(resolved) resolved · \(inbox.threads.count) thread(s)"
         if let url = inbox.webURL { summary += " — \(url)" }

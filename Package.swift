@@ -16,34 +16,62 @@ let package = Package(
     products: [
         // The CLI you run.
         .executable(name: "laconic-review", targets: ["laconic-review"]),
-        // The testable core — review intelligence is provider-neutral; only `GitLabConnection`
-        // touches GitLab. This is the surface the skill self-heals from (via its DocC).
+        // The testable core — report format, neutral DTOs, the `ReviewHost` seam. No
+        // provider imports: each forge client lives in its own target below.
         .library(name: "LaconicReviewCore", targets: ["LaconicReviewCore"]),
+        // The forge connections — public so their DocC stays the self-heal contract
+        // (a skill re-derives mappings from the symbol graph, not from source).
+        .library(name: "GitLabConnection", targets: ["GitLabConnection"]),
+        .library(name: "GitHubConnection", targets: ["GitHubConnection"]),
     ],
     dependencies: [
         // Local path dep during bring-up; swap to a Git URL once GitLabKit is published.
         .package(path: "../swift-gitlab"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+        // For `ErrorExplain`'s `ClientError` handling in the CLI (GitLabKit's error type).
+        .package(url: "https://github.com/apple/swift-openapi-runtime", from: "1.0.0"),
     ],
     targets: [
         .executableTarget(
             name: "laconic-review",
             dependencies: [
                 "LaconicReviewCore",
+                "GitLabConnection",
+                "GitHubConnection",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             ]
         ),
         .target(
-            name: "LaconicReviewCore",
+            name: "LaconicReviewCore"
+        ),
+        .target(
+            name: "GitLabConnection",
             dependencies: [
+                "LaconicReviewCore",
                 // Façade (adds `Client` conveniences) + the generated client/types.
                 .product(name: "GitLabKit", package: "swift-gitlab"),
                 .product(name: "GitLabOpenAPI", package: "swift-gitlab"),
+                .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             ]
+        ),
+        .target(
+            name: "GitHubConnection",
+            // Hand-written URLSession client — no generated surface; GraphQL is needed
+            // anyway, so a generated REST package would only cover half the calls.
+            dependencies: ["LaconicReviewCore"]
         ),
         .testTarget(
             name: "LaconicReviewCoreTests",
             dependencies: ["LaconicReviewCore"]
+        ),
+        .testTarget(
+            name: "GitLabConnectionTests",
+            dependencies: ["GitLabConnection", "LaconicReviewCore"]
+        ),
+        .testTarget(
+            name: "GitHubConnectionTests",
+            dependencies: ["GitHubConnection", "LaconicReviewCore"]
         ),
     ]
 )

@@ -2,7 +2,8 @@
 
 The review report is the **human-editable single source of truth** for a code review: prose a
 human freely edits, with machine fields in HTML-comment anchors that `laconic-review publish`
-parses into GitLab discussions.
+parses into forge discussions — GitLab merge-request threads or GitHub pull-request threads
+and comments, whichever the remote resolves to.
 
 This document is the **human formulation** of that format. The **executable** truth is
 `LaconicReviewCore` — `ReportParser` (grammar) plus `Finding` / `ReviewHeader` (fields, with
@@ -29,9 +30,9 @@ becomes part of the preceding finding's published comment.** So do **not** put `
 headers between findings, and put nothing after the last one. Group and summarize in the
 front-matter instead — it's seen only by humans.
 
-Each finding's prose is posted to GitLab **verbatim** (heading, body, code fences, links), so
-write each block to stand alone as a comment, and keep sources **inline** in the finding rather
-than in a trailing "Sources" section.
+Each finding's prose is posted to the forge **verbatim** (heading, body, code fences, links),
+so write each block to stand alone as a comment, and keep sources **inline** in the finding
+rather than in a trailing "Sources" section.
 
 ## Anchor grammar (what the parser enforces)
 
@@ -48,7 +49,7 @@ An anchor is a **single-line** HTML comment: `<!--`, a space, the keyword (`revi
 |---|:---:|---|
 | `branch` | ✅ | Source branch under review. |
 | `base` | ✅ | Base branch the MR targets (e.g. `develop`). |
-| `iid` | ✅ | MR internal id. Use `0` before an MR exists (pre-MR review). |
+| `iid` | ✅ | MR/PR number. Use `0` before one exists (pre-review). |
 | `iteration` | — | Review pass number (default `1`). |
 | `skill` | — | Emitting skill + version, e.g. `laconic-review@1`. |
 
@@ -59,7 +60,7 @@ An anchor is a **single-line** HTML comment: `<!--`, a space, the keyword (`revi
 | `id` | ◻︎ | `""` | Stable finding id (`C1`, `N3`). **Stable across iterations** — the lineage key. |
 | `severity` | ◻︎ | `""` | `blocker` \| `concern` \| `nit`. |
 | `status` | — | `open` | `open` \| `in_progress` \| `closed` \| `needs_info`. Only `open` is published. |
-| `scope` | — | `general` | `line` (anchored to a diff line) \| `general` (top-level MR note). |
+| `scope` | — | `general` | `line` (anchored to a diff line) \| `general` (top-level note). |
 | `file` | line only | — | Repo-relative path. Required when `scope=line`. |
 | `line` | line only | — | `start-end` or `start`. The thread anchors at the **end** line. |
 | `line_type` | — | `new` | `new` (added/context → `new_line`) \| `old` (removed → `old_line`). |
@@ -83,8 +84,8 @@ attaches at the **end** line (`lineEnd ?? lineStart`).
 - **The anchor is the source of truth.** The heading (`### 🟡 C1. … — ⏳ Open`) mirrors the
   anchor's `severity`/`status` for humans; the parser reads only the anchor. Keep them in sync;
   on conflict, the anchor wins.
-- **Scope.** `line` findings need `file` + `line` and post as line-anchored threads; `general`
-  findings post as top-level MR notes.
+- **Scope.** `line` findings need `file` + `line` and post as diff-anchored threads; `general`
+  findings post as top-level notes (a GitLab discussion note, a GitHub issue comment).
 - **Sources** go inline in the finding's prose (each travels with its comment), never in a
   trailing section.
 - **Multi-file finding:** anchor the primary `file`; mention the others in prose.
@@ -97,7 +98,7 @@ attaches at the **end** line (`lineEnd ?? lineStart`).
 
 ## Not in the report (by design)
 
-- **`diff_refs` / SHAs** — `publish` fetches `base/head/start_sha` fresh from the MR; the report
+- **`diff_refs` / SHAs** — `publish` fetches the anchor refs fresh from the MR/PR; the report
   carries only the stable anchor (`file` + `line` + `line_type`).
 - **Publish state** — the id → discussion-url map lives in `<N>.published.json` beside the report
   (idempotency + cross-link resolution), not in the markdown.
@@ -130,7 +131,7 @@ The skill's final step runs this and self-heals on failure.
 - **Sectioning — back-to-back (Invariant 4).** No `## severity` sections between findings; the
   front-matter summary table carries human grouping. (Considered and declined: the example reads
   cleanly back-to-back, and a single grammar rule is easier for the skill to emit and lint to check.)
-- **`iid` — required; use `0`** for a pre-MR review. A clearer contract than making it optional.
+- **`iid` — required; use `0`** for a pre-review report. A clearer contract than making it optional.
 - **Status token — `closed`** (not `resolved`); fixtures updated.
 
 ## Still open

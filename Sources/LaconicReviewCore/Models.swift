@@ -4,12 +4,18 @@ import Foundation
 public struct Identity: Equatable, Sendable, Codable {
     /// GitLab types user/project `id` as `integer, format: int64`, so we mirror that wire type
     /// rather than narrowing to `Int` at the seam. (`iid` is a plain `integer` upstream — `Int`.)
+    /// GitHub's user `id` is also int64 — the seam type fits both.
     public let id: Int64
     public let username: String
     public let name: String?
+
+    public init(id: Int64, username: String, name: String?) {
+        self.id = id; self.username = username; self.name = name
+    }
 }
 
-/// MR lifecycle state, mirroring GitLab's `state` field.
+/// MR/PR lifecycle state — GitLab's `state` field, plus GitHub's merged case
+/// (a closed PR with `merged_at` set maps to `.merged`).
 public enum MergeRequestState: String, Sendable, Codable, Equatable {
     case opened, closed, merged, locked, unknown
 }
@@ -34,17 +40,24 @@ public struct MergeRequestSummary: Equatable, Sendable, Codable {
     }
 }
 
-/// The three SHAs GitLab uses to anchor a line comment. This is the server-side source of
-/// truth for `position`; the markdown report never persists these — it fetches them fresh.
+/// The SHAs a line comment anchors to — GitLab's `diff_refs`; GitHub maps
+/// `base.sha`/`head.sha` (`startSha` stays `nil` there). This is the server-side
+/// source of truth for the anchor position; the markdown report never persists
+/// these — it fetches them fresh.
 public struct DiffRefs: Equatable, Sendable, Codable {
     public let baseSha: String?
     public let headSha: String?
     public let startSha: String?
+
+    public init(baseSha: String?, headSha: String?, startSha: String?) {
+        self.baseSha = baseSha; self.headSha = headSha; self.startSha = startSha
+    }
 }
 
 /// A neutral diff anchor for a discussion: a file, and a line on one side of the diff —
 /// or just the file for file-level comments (`line == nil`, `lineType == .file`). The seam
-/// combines this with ``DiffRefs`` (fetched at publish) to build GitLab's `position` object.
+/// combines this with ``DiffRefs`` (fetched at publish) to build the host's anchor —
+/// GitLab's `position` object, GitHub's `path` + `line` + `side`.
 public struct Position: Equatable, Sendable, Codable {
     public let file: String
     public let line: Int?
@@ -57,15 +70,22 @@ public struct Position: Equatable, Sendable, Codable {
     }
 }
 
-/// The result of creating a discussion: the thread id (to resolve later) and its first note id
-/// (to anchor a `#note_<id>` URL). Provider-neutral — the publish layer composes the URL.
+/// The result of creating a discussion: the thread id (to resolve later), its first note id
+/// (to anchor a permalink), and — when the host's API returns one — the note's permalink.
+/// Provider-neutral: `discussionID` is opaque to callers; each host interprets it (a GitLab
+/// discussion id, a GitHub review-thread node id, …). The publish layer persists it in the
+/// ledger and hands it back to `reply`/`resolve-thread` unchanged.
 public struct PostedDiscussion: Equatable, Sendable {
     public let discussionID: String
     public let noteID: Int?
+    /// The note's permalink when the host API returns one (GitHub `html_url`). GitLab leaves
+    /// this `nil` — its `#note_<id>` fragment is composed by ``ReviewHost/noteURL(for:mergeRequestWebURL:)``.
+    public let url: String?
 
-    public init(discussionID: String, noteID: Int?) {
+    public init(discussionID: String, noteID: Int?, url: String? = nil) {
         self.discussionID = discussionID
         self.noteID = noteID
+        self.url = url
     }
 }
 
@@ -78,6 +98,11 @@ public struct DiscussionSummary: Equatable, Sendable, Codable {
     public let resolved: Bool
     public let onDiff: Bool
     public let preview: String?
+
+    public init(id: String, noteCount: Int, resolvable: Bool, resolved: Bool, onDiff: Bool, preview: String?) {
+        self.id = id; self.noteCount = noteCount; self.resolvable = resolvable
+        self.resolved = resolved; self.onDiff = onDiff; self.preview = preview
+    }
 }
 
 /// One note inside a review thread — everything `fetch` needs to hand an agent.
@@ -106,7 +131,8 @@ public struct ThreadNote: Equatable, Sendable, Codable {
 /// System notes are dropped at mapping time; threads that held only system notes are dropped too.
 public struct DiscussionThread: Equatable, Sendable, Codable {
     public let id: String
-    /// GitLab's `individual_note`: a standalone comment, not a resolvable thread.
+    /// A standalone comment, not a resolvable thread — GitLab's `individual_note`;
+    /// GitHub issue comments map here (they have no thread and can't be resolved).
     public let individualNote: Bool
     public let resolvable: Bool
     public let resolved: Bool
@@ -120,24 +146,28 @@ public struct DiscussionThread: Equatable, Sendable, Codable {
         self.notes = notes
     }
 
-    /// The thread's diff anchor — GitLab puts the same position on each note of the thread.
+    /// The thread's diff anchor — the first non-nil note position wins (hosts repeat it
+    /// per note or carry it per comment).
     public var position: Position? { notes.lazy.compactMap(\.position).first }
 
     /// Open business for the merge author: a resolvable thread nobody resolved yet.
     public var isOpen: Bool { resolvable && !resolved }
 }
 
-/// What `fetch` returns: the MR plus every non-system thread, verbatim.
+/// What `fetch` returns: the MR/PR plus every non-system thread, verbatim.
 public struct Inbox: Equatable, Sendable, Codable {
     public let iid: Int
+    /// Which forge the threads came from — drives the `MR !`/`PR #` label.
+    public let kind: ReviewHostKind
     public let title: String
     public let webURL: String?
     public let branch: String
     public let fetchedAt: Date
     public let threads: [DiscussionThread]
 
-    public init(iid: Int, title: String, webURL: String?, branch: String, fetchedAt: Date, threads: [DiscussionThread]) {
+    public init(iid: Int, kind: ReviewHostKind, title: String, webURL: String?, branch: String, fetchedAt: Date, threads: [DiscussionThread]) {
         self.iid = iid
+        self.kind = kind
         self.title = title
         self.webURL = webURL
         self.branch = branch

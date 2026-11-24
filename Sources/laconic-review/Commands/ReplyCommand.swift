@@ -2,7 +2,7 @@ import ArgumentParser
 import Foundation
 import LaconicReviewCore
 
-/// Post a note into an existing MR discussion thread, optionally resolving it.
+/// Post a note into an existing review thread, optionally resolving it.
 ///
 /// The resolution reply should name the fix (commit, file) — it is the signal that lets a
 /// reader distinguish "the author claims this is fixed" from "the asker confirmed it".
@@ -10,13 +10,13 @@ import LaconicReviewCore
 struct ReplyCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "reply",
-        abstract: "Reply in an existing MR discussion thread (dry-run unless --confirm)."
+        abstract: "Reply in an existing review thread (dry-run unless --confirm)."
     )
 
-    @Argument(help: "Merge request iid.")
+    @Argument(help: "Merge request / pull request iid.")
     var iid: Int
 
-    @Argument(help: "Discussion id (see `fetch` / `discussions`).")
+    @Argument(help: "Thread id (see `fetch` / `discussions`).")
     var discussionID: String
 
     @Option(help: "Reply text (markdown). Mutually exclusive with --body-file.")
@@ -31,7 +31,7 @@ struct ReplyCommand: AsyncParsableCommand {
     @Flag(help: "Unresolve the thread after posting.")
     var unresolve = false
 
-    @Flag(help: "Actually post to GitLab. Without it, prints the plan (dry-run).")
+    @Flag(help: "Actually post to the forge. Without it, prints the plan (dry-run).")
     var confirm = false
 
     @OptionGroup var options: ConnectionOptions
@@ -54,7 +54,7 @@ struct ReplyCommand: AsyncParsableCommand {
         let suffix = resolve ? " and resolve it" : (unresolve ? " and unresolve it" : "")
 
         guard confirm else {
-            print("DRY RUN — would post \(text.count) chars to discussion \(discussionID) on MR !\(iid)\(suffix). Re-run with --confirm.")
+            print("DRY RUN — would post \(text.count) chars to thread \(discussionID) on \(refLabel(options.detectKind(), iid))\(suffix). Re-run with --confirm.")
             return
         }
 
@@ -72,9 +72,9 @@ struct ReplyCommand: AsyncParsableCommand {
             }
         }
 
-        // The note permalink needs the MR's web_url — cosmetic; never fail the reply for it.
+        // The note permalink needs the MR/PR's web_url — cosmetic; never fail the reply for it.
         let mr = (try? await connection.mergeRequest(iid: iid))?.0
-        let url = posted.noteID.flatMap { id in mr?.webURL.map { "\($0)#note_\(id)" } }
+        let url = connection.noteURL(for: posted, mergeRequestWebURL: mr?.webURL)
         print("✓ replied → \(url ?? discussionID)\(tail)")
     }
 

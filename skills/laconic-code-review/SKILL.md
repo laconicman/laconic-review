@@ -1,17 +1,17 @@
 ---
 name: laconic-code-review
-description: Conduct a thorough code review of changes on the current git branch against a base branch (default `develop`). Use whenever the user asks for "ревью этой ветки", "посмотри ветку", "review the branch", "code review", "second opinion on the diff", "check the MR", asks to compare new commits against a previous review, or asks to grade or critique a series of recent commits. Produces ONE human-editable Markdown report at `.claude/reviews/<branch>/<N>.md` whose machine fields live in HTML-comment anchors — validated by `laconic-review lint` and publishable to a GitLab merge request by `laconic-review publish`. Always invoke this skill for ANY review-style request — even if phrased informally as "что думаешь про эту ветку" or just a pasted diff. Do not improvise the review format; follow the rubric and emit the anchored format shown in the example.
+description: Conduct a thorough code review of changes on the current git branch against a base branch (default `develop`). Use whenever the user asks for "ревью этой ветки", "посмотри ветку", "review the branch", "code review", "second opinion on the diff", "check the MR", asks to compare new commits against a previous review, or asks to grade or critique a series of recent commits. Produces ONE human-editable Markdown report at `.claude/reviews/<branch>/<N>.md` whose machine fields live in HTML-comment anchors — validated by `laconic-review lint` and publishable to a merge request or pull request by `laconic-review publish`. Always invoke this skill for ANY review-style request — even if phrased informally as "что думаешь про эту ветку" or just a pasted diff. Do not improvise the review format; follow the rubric and emit the anchored format shown in the example.
 ---
 
 # Code review — laconic
 
 Produce a senior-engineer review of the current branch's changes versus base. The output is a **single artifact**:
 
-- **`.claude/reviews/<branch>/<N>.md`** — a human-editable Markdown report whose machine fields live in HTML-comment anchors (`<!-- review … -->`, `<!-- finding … -->`). The user reads and edits it, then publishes it to the merge request with `laconic-review publish` (line-anchored + general discussions, idempotent). There is **no separate JSON** — the anchors carry every machine field the publisher needs; the prose is the comment body, posted verbatim.
+- **`.claude/reviews/<branch>/<N>.md`** — a human-editable Markdown report whose machine fields live in HTML-comment anchors (`<!-- review … -->`, `<!-- finding … -->`). The user reads and edits it, then publishes it to the MR/PR with `laconic-review publish` (line-anchored + general discussions, idempotent). There is **no separate JSON** — the anchors carry every machine field the publisher needs; the prose is the comment body, posted verbatim.
 
 `<N>` is the iteration counter — re-reviews of the same branch get `2.md`, `3.md`, … so the trail is preserved.
 
-> **Prerequisite.** This skill shells out to the `laconic-review` CLI (from the laconic-review package) for the GitLab-facing steps — resolving the MR, validating, publishing. It must be on `PATH`. Everything this skill does itself is provider-neutral; GitLab lives entirely behind that CLI.
+> **Prerequisite.** This skill shells out to the `laconic-review` CLI (from the laconic-review package) for the forge-facing steps — resolving the MR/PR, validating, publishing. It must be on `PATH`, with the forge token exported (`GITLAB_TOKEN` or `GITHUB_TOKEN`, per the remote's host). Everything this skill does itself is provider-neutral; GitLab and GitHub live entirely behind that CLI.
 
 ## When to trigger
 
@@ -40,26 +40,26 @@ git log --oneline <base>..HEAD                             # commits on the bran
 git diff --stat <base>...HEAD                              # change shape
 ```
 
-This is provider-neutral — no GitLab here. The project and remote are inferred by the CLI in step 2.
+This is provider-neutral — no forge calls here. The project and remote are inferred by the CLI in step 2.
 
-### 2. Resolve the target MR — and confirm if state is ambiguous
+### 2. Resolve the target MR/PR — and confirm if state is ambiguous
 
-Delegate MR resolution to the connector (it owns GitLab — project path, encoding, API):
+Delegate resolution to the connector (it owns the forge — project path, encoding, API):
 
 ```bash
 laconic-review resolve "<branch>" --base "<base>" --json
 ```
 
-It returns the `iid` of the single open MR for the branch, or the candidate MRs otherwise. Apply this decision tree:
+It returns the `iid` of the single open MR/PR for the branch, or the candidates otherwise. Apply this decision tree:
 
 | Situation | Action |
 |---|---|
-| Current branch is `develop` / `main` / `master` | **Confirm with the user.** It's a base branch — ask whether to review a specific open MR or do a "what's new on `develop`" pre-MR review. |
-| Exactly one open MR for this branch | Use its `iid`. Proceed silently. |
-| Multiple open MRs for this branch | Pick the most recently updated; note in the report's TL;DR which one. |
-| Only merged/closed MRs | **Confirm with the user.** Reviewing a merged conversation is rarely the intent — ask, or proceed as a pre-MR review. |
-| No MR of any state | Proceed as a pre-MR review: `iid=0` in the anchor. |
-| User named an MR explicitly ("review MR 967") | Use it directly; skip resolution. |
+| Current branch is `develop` / `main` / `master` | **Confirm with the user.** It's a base branch — ask whether to review a specific open MR/PR or do a "what's new on `develop`" pre-review. |
+| Exactly one open MR/PR for this branch | Use its `iid`. Proceed silently. |
+| Multiple open MR/PRs for this branch | Pick the most recently updated; note in the report's TL;DR which one. |
+| Only merged/closed MR/PRs | **Confirm with the user.** Reviewing a merged conversation is rarely the intent — ask, or proceed as a pre-review. |
+| No MR/PR of any state | Proceed as a pre-review: `iid=0` in the anchor. |
+| User named an MR/PR explicitly ("review MR 967", "review PR 42") | Use it directly; skip resolution. |
 
 This matches the user's preference: don't waste a review pass on a merged conversation by accident.
 
@@ -101,13 +101,13 @@ Read `references/rubric.md` for the *content* rules: severity scale (🔴/🟡/�
 
 The *form* (HTML anchors + layout) is owned by the laconic-review package, not this skill. **Emit by the golden example** `references/example-report.md`; the authoritative field set is the package's `Docs/report-format.md` and the `LaconicReviewCore` DocC. Don't restate the anchor schema in your prose — it drifts. In brief, a report is:
 
-1. **One `<!-- review branch=… base=… iid=… iteration=<N> skill=laconic-code-review@1 head_sha=<MR head SHA> -->` anchor.** All values are space-free. `head_sha` is the head commit you reviewed (from the MR metadata you fetched) — `publish` uses it to verify the report still matches the MR before trusting out-of-hunk anchors.
+1. **One `<!-- review branch=… base=… iid=… iteration=<N> skill=laconic-code-review@1 head_sha=<MR/PR head SHA> -->` anchor.** All values are space-free. `head_sha` is the head commit you reviewed (from the MR/PR metadata you fetched) — `publish` uses it to verify the report still matches the head before trusting out-of-hunk anchors.
 2. **Human front-matter** — title, a one-paragraph TL;DR, the summary table, the merge recommendation. Everything before the first finding is for humans; the parser ignores it. **Group and summarize here.**
 3. **Findings, back-to-back** — each a `<!-- finding id=… severity=… status=… scope=… [file=… line=… line_type=…] [links=…] -->` anchor immediately followed by its prose (the `### 🟡 C1. … — ⏳ Open` heading mirror, body, inline sources, code fences). Prose is published **verbatim**, so each block must read standalone.
 
 **Hard rules** (the parser enforces them; violating them corrupts published comments):
 - **No `##` section headers between findings, and nothing after the last one** — a finding's prose runs to the next anchor, so any such content leaks into the preceding comment. Use the front-matter for grouping.
-- **`scope=line` needs `file` + `line`** — prefer a line inside the diff (added or context); `publish` also resolves unchanged lines *outside* hunks, but only when the report's `head_sha` matches the MR head — a follow-up push can shift any anchor, so re-review after pushes rather than trusting a stale report.
+- **`scope=line` needs `file` + `line`** — prefer a line inside the diff (added or context); `publish` also resolves unchanged lines *outside* hunks where the forge allows it (GitLab does; GitHub can't anchor outside hunks, so those publish as general notes), but only when the report's `head_sha` matches the head — a follow-up push can shift any anchor, so re-review after pushes rather than trusting a stale report.
 - **Severity first, then id.** Rate the finding, then name it: at birth the B/C/N prefix **must match** `severity=`, and the heading emoji mirrors it (`severity=blocker` ⇒ `B<n>` ⇒ 🔴). Ids freeze only once **published** or carried from a previous iteration — while drafting, if you re-rate a finding, renumber it; never leave a newborn `B` wearing 🟡. (`lint` warns on the mismatch.) Scope never enters the id: a general-scoped concern is `C`, never `G`.
 - **Cross-links** are `links=C2` (finding ids), not Markdown anchors. `laconic-review publish` rewrites them to thread URLs.
 
@@ -187,7 +187,7 @@ For specialist-skill-backed claims (concurrency, SwiftUI, Core Data), cite the s
 
 ## Boundaries
 
-This skill **produces and validates** the report. It does **not** publish: posting discussions (`laconic-review publish --confirm`) and resolving threads (`laconic-review resolve-thread --confirm`) are the user's gated steps. The report is provider-neutral; the GitLab specifics live in the `laconic-review` CLI, so this skill fits a future GitHub seam unchanged.
+This skill **produces and validates** the report. It does **not** publish: posting discussions (`laconic-review publish --confirm`) and resolving threads (`laconic-review resolve-thread --confirm`) are the user's gated steps. The report is provider-neutral; the forge specifics (GitLab MRs, GitHub PRs) live in the `laconic-review` CLI.
 
 ## See also
 
