@@ -21,7 +21,7 @@ public struct HostConfig: Sendable {
 }
 
 /// Resolves a ``HostConfig`` from explicit values, falling back to the repository's
-/// `git remote` and an environment variable for the token.
+/// `git remote` and an environment variable or Keychain service for the token.
 ///
 /// The forge is picked by `--host` when given, else by the effective base URL's host:
 /// GitHub's known hostnames map to `.github`, everything else stays `.gitlab` — the
@@ -29,8 +29,10 @@ public struct HostConfig: Sendable {
 /// exotic GHES hostname just needs the override.
 ///
 /// Resolution order for base URL and project: explicit argument → parsed `origin` remote.
-/// The token is **only** ever read from the environment — never passed as an argument; its
-/// variable defaults per host (`GITLAB_TOKEN` / `GITHUB_TOKEN`) unless `tokenEnv` overrides.
+/// The token is **only** ever read from the environment or the login Keychain — never
+/// passed as an argument; its variable defaults per host (`GITLAB_TOKEN` / `GITHUB_TOKEN`)
+/// unless `tokenEnv` overrides, and `tokenKeychain` names a generic-password service tried
+/// when the variable is unset.
 public enum ProjectContext {
     /// - Parameters:
     ///   - project: Explicit project id/path (`owner/repo` on GitHub), or `nil` to infer
@@ -38,12 +40,15 @@ public enum ProjectContext {
     ///   - baseURL: Explicit base URL, or `nil` to infer from `git remote`.
     ///   - tokenEnv: Environment variable holding the access token, or `nil` for the
     ///     per-host default.
+    ///   - tokenKeychain: Keychain service holding the access token as a generic-password
+    ///     item, tried when the env var is unset, or `nil`.
     ///   - host: `--host` override, or `nil` to detect from the base URL.
     ///   - directory: Repository directory to inspect (defaults to the current directory).
     public static func resolve(
         project: String?,
         baseURL: String?,
         tokenEnv: String?,
+        tokenKeychain: String?,
         host: ReviewHostKind?,
         requireProject: Bool = true,
         in directory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -59,17 +64,30 @@ public enum ProjectContext {
         let kind = ReviewHostKind.detect(explicit: host, baseURL: url)
 
         let env = tokenEnv ?? kind.defaultTokenEnv
-        guard let token = ProcessInfo.processInfo.environment[env], !token.isEmpty else {
-            throw ConnectionError.missingToken(env: env)
-        }
+        let token = try resolveToken(env: env, keychainService: tokenKeychain)
         guard let projectPath = project ?? remote?.projectPath ?? (requireProject ? nil : "") else {
             throw ConnectionError.cannotResolveProject
         }
         return HostConfig(kind: kind, baseURL: url, projectPath: projectPath, token: token)
     }
 
+    /// The token's sources, in order: the environment variable first — the default —
+    /// then the Keychain service `--token-keychain` named, for shells where the export
+    /// was never made. A variable that is set but empty counts as unset.
+    static func resolveToken(
+        env: String,
+        keychainService: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> String {
+        if let token = environment[env], !token.isEmpty { return token }
+        if let service = keychainService {
+            return try KeychainToken.password(service: service)
+        }
+        throw ConnectionError.missingToken(env: env)
+    }
+
     /// Best-effort forge detection for offline paths (dry-run labels) — same precedence as
-    /// ``resolve(project:baseURL:tokenEnv:host:requireProject:in:)`` minus the token and
+    /// ``resolve(project:baseURL:tokenEnv:tokenKeychain:host:requireProject:in:)`` minus the token and
     /// project requirements: `--host`, then `--base-url`, then the `origin` remote.
     /// Unresolvable or unrecognized hosts fall back to `.gitlab`, the historical default.
     public static func detectKind(
@@ -176,7 +194,7 @@ public enum ConnectionError: Error, CustomStringConvertible, Equatable {
     public var description: String {
         switch self {
         case .missingToken(let env):
-            return "No access token in environment variable `\(env)`. Export it (e.g. in ~/.zshenv) and retry."
+            return "No access token in environment variable `\(env)`. Export it (e.g. in ~/.zshenv) or pass --token-keychain <service> to read it from the login Keychain."
         case .cannotResolveBaseURL:
             return "Could not determine the forge URL. Pass --base-url or run inside a git repo with an `origin` remote."
         case .cannotResolveProject:

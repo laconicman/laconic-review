@@ -3,7 +3,8 @@ import GitHubConnection
 import GitLabConnection
 import LaconicReviewCore
 
-/// Flags shared by every subcommand. The token is taken from the environment, never a flag.
+/// Flags shared by every subcommand. The token comes from the environment or the login
+/// Keychain — never a flag value.
 struct ConnectionOptions: ParsableArguments {
     @Option(help: "Forge project: GitLab id/namespace path or GitHub owner/repo. Default: from `git remote`.")
     var project: String?
@@ -17,6 +18,9 @@ struct ConnectionOptions: ParsableArguments {
     @Option(name: .customLong("token-env"), help: "Environment variable holding the access token. Default: GITLAB_TOKEN or GITHUB_TOKEN, per host.")
     var tokenEnv: String?
 
+    @Option(name: .customLong("token-keychain"), help: "Keychain service holding the access token as a generic-password item. Tried when the token env var is unset.")
+    var tokenKeychain: String?
+
     @Flag(help: "Emit machine-readable JSON instead of text.")
     var json = false
 
@@ -25,7 +29,7 @@ struct ConnectionOptions: ParsableArguments {
     func makeConnection(requireProject: Bool = true) throws -> any ReviewHost {
         let config = try ProjectContext.resolve(
             project: project, baseURL: baseURL, tokenEnv: tokenEnv,
-            host: host, requireProject: requireProject
+            tokenKeychain: tokenKeychain, host: host, requireProject: requireProject
         )
         switch config.kind {
         case .gitlab:

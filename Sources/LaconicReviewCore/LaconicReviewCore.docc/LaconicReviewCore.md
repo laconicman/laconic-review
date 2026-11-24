@@ -29,6 +29,7 @@ dependencies never leak into the core or into each other.
 - ``ReviewHost``
 - ``ReviewHostKind``
 - ``ConnectionError``
+- ``KeychainTokenError``
 
 ### Review domain
 
