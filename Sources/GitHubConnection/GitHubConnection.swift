@@ -45,15 +45,9 @@ public struct GitHubConnection: Sendable, ReviewHost {
     /// legitimate candidate but flagged `fromFork`, so the resolver never picks it
     /// silently over an unknown same-named branch.
     public func mergeRequests(sourceBranch: String) async throws -> [MergeRequestSummary] {
-        guard let scope = client.repoFullName?.lowercased() else {
-            throw GitHubRequestError.invalidProjectPath(client.projectPath)
-        }
-        return try await client.pullRequests().compactMap { pr in
+        try await client.pullRequests().compactMap { pr in
             guard pr.head.ref == sourceBranch else { return nil }
-            return Self.summary(
-                pr,
-                fromFork: pr.head.repo?.full_name.lowercased() != scope
-            )
+            return Self.summary(pr, fromFork: Self.isForkPR(pr))
         }
     }
 
@@ -62,9 +56,8 @@ public struct GitHubConnection: Sendable, ReviewHost {
     /// review comments need (`commit_id` = head).
     public func mergeRequest(iid: Int) async throws -> (summary: MergeRequestSummary, diffRefs: DiffRefs) {
         let pr = try await client.pullRequest(iid)
-        let scope = client.repoFullName?.lowercased()
         return (
-            Self.summary(pr, fromFork: pr.head.repo?.full_name.lowercased() != scope),
+            Self.summary(pr, fromFork: Self.isForkPR(pr)),
             DiffRefs(baseSha: pr.base.sha, headSha: pr.head.sha, startSha: nil)
         )
     }
@@ -227,6 +220,14 @@ public struct GitHubConnection: Sendable, ReviewHost {
     /// dispatch on it.
     static func isReviewThread(_ discussionID: String) -> Bool {
         discussionID.hasPrefix("PRRT_")
+    }
+
+    /// A fork PR's head lives on a different repository than its base. Comparing
+    /// `head.repo` to `base.repo` — both canonical names from the same API snapshot —
+    /// survives repository renames, unlike comparing against the (possibly stale)
+    /// `projectPath` parsed from the clone's remote.
+    static func isForkPR(_ pr: GHPullRequest) -> Bool {
+        pr.head.repo?.full_name.lowercased() != pr.base.repo?.full_name.lowercased()
     }
 
     static func summary(_ pr: GHPullRequest, fromFork: Bool = false) -> MergeRequestSummary {

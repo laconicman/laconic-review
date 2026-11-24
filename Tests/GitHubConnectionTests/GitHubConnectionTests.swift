@@ -82,13 +82,13 @@ final class GitHubConnectionTests: XCTestCase {
     private func pullRequestJSON(
         number: Int = 7, state: String = "open", mergedAt: String? = nil,
         headRef: String = "feat/x", headSha: String = "headsha", baseSha: String = "basesha",
-        headRepo: String? = "octo/repo"
+        headRepo: String? = "octo/repo", baseRepo: String = "octo/repo"
     ) -> String {
         let merged = mergedAt.map { "\"\($0)\"" } ?? "null"
         let repo = headRepo.map { #""repo":{"full_name":"\#($0)"}"# } ?? #""repo":null"#
         return """
         {"number":\(number),"node_id":"PR_node_\(number)","state":"\(state)","merged_at":\(merged),"title":"PR \(number)",
-         "head":{"ref":"\(headRef)","sha":"\(headSha)",\(repo)},"base":{"ref":"main","sha":"\(baseSha)","repo":{"full_name":"octo/repo"}},
+         "head":{"ref":"\(headRef)","sha":"\(headSha)",\(repo)},"base":{"ref":"main","sha":"\(baseSha)","repo":{"full_name":"\(baseRepo)"}},
          "html_url":"https://github.com/octo/repo/pull/\(number)","updated_at":"2026-01-02T03:04:05Z"}
         """
     }
@@ -194,6 +194,16 @@ final class GitHubConnectionTests: XCTestCase {
         ]))
         let (summary, _) = try await connection(stub).mergeRequest(iid: 7)
         XCTAssertTrue(summary.fromFork)
+    }
+
+    func testMergeRequestSurvivesRepoRename() async throws {
+        // After a rename the API reports the *current* name for both head and base —
+        // they still match each other even though projectPath holds the old name.
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON(headRepo: "octo/renamed", baseRepo: "octo/renamed"))),
+        ]))
+        let (summary, _) = try await connection(stub).mergeRequest(iid: 7)
+        XCTAssertFalse(summary.fromFork)
     }
 
     func testMergeRequestDiffsMapsFilesEndpoint() async throws {
@@ -445,6 +455,23 @@ final class GitHubConnectionTests: XCTestCase {
             XCTAssertTrue(detail.contains("evil/repo"))
         }
         XCTAssertEqual(stub.requests.count, 2)
+    }
+
+    func testPostNoteSurvivesRepoRename() async throws {
+        // The thread's parent reports the *current* repo name — ownership is proven
+        // by node id, so a renamed repo doesn't break replies.
+        let threadPR = #"{"data":{"node":{"pullRequest":{"id":"PR_node_7","number":7,"repository":{"nameWithOwner":"octo/renamed"}}}}}"#
+        let response = """
+        {"data":{"addPullRequestReviewThreadReply":{"comment":{"fullDatabaseId":"3004","url":"u"}}}}
+        """
+        let stub = Stub(handler: router([
+            ("GET /repos/octo/repo/pulls/7", ok(pullRequestJSON())),
+            ("ReviewThreadPR", ok(threadPR)),
+            ("ReplyToReviewThread", ok(response)),
+        ]))
+        let posted = try await connection(stub).postNote(iid: 7, discussionID: "PRRT_x", body: "re")
+        XCTAssertEqual(posted.discussionID, "PRRT_x")
+        XCTAssertEqual(stub.requests.count, 3)
     }
 
     func testPostNoteRejectsNonThreadID() async throws {
