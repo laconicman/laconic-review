@@ -11,7 +11,7 @@ Produce a senior-engineer review of the current branch's changes versus base. Th
 
 `<N>` is the iteration counter — re-reviews of the same branch get `2.md`, `3.md`, … so the trail is preserved.
 
-> **Prerequisite.** This skill shells out to the `laconic-review` CLI (from the laconic-review package) for the forge-facing steps — resolving the MR/PR, validating, publishing. It must be on `PATH`, with the forge token available — exported (`GITLAB_TOKEN` or `GITHUB_TOKEN`, per the remote's host) or in the default Keychain, passed per invocation as `--token-keychain <service>`. Everything this skill does itself is provider-neutral; GitLab and GitHub live entirely behind that CLI.
+> **Prerequisite.** This skill shells out to the `laconic-review` CLI (from the laconic-review package) for the forge-facing steps — resolving the MR/PR, validating, publishing. It must be on `PATH`, with the forge token available — exported (`GITLAB_TOKEN` or `GITHUB_TOKEN`, per the remote's host) or in the default Keychain via `--token-keychain <service>` on every call. One-time token/Keychain setup: `references/token-setup.md`. Everything this skill does itself is provider-neutral; GitLab and GitHub live entirely behind that CLI.
 
 ## When to trigger
 
@@ -194,6 +194,7 @@ This skill **produces and validates** the report. It does **not** publish: posti
 
 - `references/rubric.md` — severity, status, ids, `Nit:` rule, scope, cross-links, sources
 - `references/example-report.md` — the golden sample (FPM-1653); your emission target
+- `references/token-setup.md` — one-time forge-token/Keychain setup; read only when auth fails
 - the laconic-review package — `Docs/report-format.md` + `LaconicReviewCore` DocC: the authoritative format and field set (`laconic-review lint` is its executable form)
 - `evals/evals.json` — test prompts for verifying the skill
 - `software-development-principles` — bundled companion (design vocabulary + principle grounding); consulted by default

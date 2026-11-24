@@ -79,6 +79,7 @@ your `origin` remote.
 ```bash
 export GITHUB_TOKEN="ghp_…"          # or GITLAB_TOKEN="glpat-…"
 # …or skip the export entirely and keep the token in the Keychain:
+#   security add-generic-password -a "$USER" -s gitlab.flat.lab -w
 
 laconic-review whoami
 laconic-review whoami --token-keychain gitlab.flat.lab
